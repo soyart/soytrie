@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 /// Defines how the trie node treats each match.
+#[derive(Clone)]
 pub enum SearchMode {
     /// Exact gets valued node
     Exact,
