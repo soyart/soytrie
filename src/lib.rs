@@ -2,17 +2,19 @@ use std::collections::HashMap;
 
 /// Defines how the trie node treats each match.
 pub enum SearchMode {
-    /// Entire path has to match, and the final node has to
-    /// have some value (i.e. a word).
+    /// Entire path has to match, and the final [`TrieNode<K, V>`](TrieNode) has to
+    /// have some value (i.e. a word or a _value node_).
     Exact,
 
-    /// Entire path has to match, although the final node
-    /// maybe non-value (i.e. non-word)
+    /// Entire path has to match, although the final [`TrieNode<K, V>`](TrieNode)
+    /// maybe non-value (i.e. non-word or a _path node_)
     Prefix,
 }
 
 /// A node in a trie.
-/// If using multiple trie trees, consider using `Trie<K, V>`, which has a root node.
+/// In this trie implementation, a node can be either a _value node_, or a _path node_.
+/// A value node has [`Some(V)`](Some) in the value field, while path node has [`None`](None).
+/// If using multiple tries, consider using [`Trie<K, V>`](Trie), which has a path node as root.
 pub struct TrieNode<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
@@ -26,7 +28,7 @@ impl<K, V> TrieNode<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
 {
-    /// Creates new TrieNode with value set to None
+    /// Creates new node with value set to [None](None).
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -35,19 +37,30 @@ where
         }
     }
 
-    /// Returns the mutable reference of the existing child at key `key`,
-    /// or if it does not exist, inserts `child` to `self.children` and returning that new child.
+    /// Returns the mutable reference of the existing child at key `key`.
+    /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn insert_direct_child(&mut self, key: K, child: Self) -> &mut Self {
-        self.children.entry(key).or_insert(child)
+    pub fn insert_direct_child<T>(&mut self, key: K, child: T) -> &mut Self
+    where
+        T: Into<Self>,
+    {
+        self.children.entry(key).or_insert(child.into())
     }
 
     /// Inserts `value` to child at path `path`. If the child does not exist, a new child
     /// is created and appended to the trie with value `Some(value)`.
     #[inline]
     pub fn insert(&mut self, path: &[K], value: V) {
-        let mut curr = self;
+        // The recursive and more functional implementation performs worse than the current imperative version.
+        // if path.is_empty() {
+        //     self.value = Some(value);
+        //     return;
+        // }
+        //
+        // self.insert_direct_child(path[0].clone(), TrieNode::new())
+        //     .insert(&path[1..], value)
 
+        let mut curr = self;
         for p in path {
             let next = curr.insert_direct_child(p.clone(), TrieNode::new());
             curr = next;
@@ -57,13 +70,13 @@ where
     }
 
     /// Returns a reference to the direct child at key `key`.
-    #[inline]
+    #[inline(always)]
     pub fn get_direct_child(&self, key: K) -> Option<&Self> {
         self.children.get(&key)
     }
 
     /// Returns a mutable reference to the direct child at key `key`.
-    #[inline]
+    #[inline(always)]
     pub fn get_direct_child_mut(&mut self, key: K) -> Option<&mut Self> {
         self.children.get_mut(&key)
     }
@@ -91,7 +104,7 @@ where
     }
 
     /// Searchs for child at the path, returning boolean value indicating success.
-    #[inline]
+    #[inline(always)]
     pub fn search(&self, mode: SearchMode, path: &[K]) -> bool {
         match self.get_child(path) {
             None => false,
@@ -103,7 +116,7 @@ where
     }
 
     /// Removes and returns the direct owned child at key `key`.
-    #[inline]
+    #[inline(always)]
     pub fn remove_direct_child(&mut self, key: K) -> Option<Self> {
         self.children.remove(&key)
     }
@@ -116,7 +129,7 @@ where
             .and_then(|child| child.children.remove(&path[last_idx]))
     }
 
-    /// `collect_children` recursively collects all TrieNode children below `self`
+    /// Recursively collects all extant children of `node`.
     fn collect_children<'s, 'l>(node: &'l Self, children: &mut Vec<&'s Self>)
     where
         'l: 's,
@@ -127,21 +140,7 @@ where
         }
     }
 
-    /// Collects all children of the child at path `path`, returning None if the child
-    /// does not exist or if the child's number of children is 0.
-    #[inline]
-    pub fn predict(&self, path: &[K]) -> Option<Vec<&V>> {
-        self.get_child(path).and_then(|child| {
-            let predicted = child.all_children();
-            if predicted.is_empty() {
-                return None;
-            }
-
-            Some(predicted)
-        })
-    }
-
-    /// Returns all children with values as a vector of references to the children.
+    /// Returns all children that are _value nodes_ as a vector of references to the children.
     #[inline]
     pub fn all_children(&self) -> Vec<&V> {
         let children = &mut Vec::new();
@@ -151,6 +150,22 @@ where
             .iter()
             .filter_map(|child| child.value.as_ref())
             .collect()
+    }
+
+    /// Collects all values of the children of the child at path `path`, returning [`None`](None)
+    /// if the child does not exist or if the child's number of children is 0. Otherwise, the
+    /// references to values is collected as [`Some(Vec<&V>)`](Some)
+    #[inline]
+    pub fn predict(&self, path: &[K]) -> Option<Vec<&V>> {
+        self.get_child(path).and_then(|child| {
+            let predicted = child.all_children();
+
+            if predicted.is_empty() {
+                return None;
+            }
+
+            Some(predicted)
+        })
     }
 }
 
