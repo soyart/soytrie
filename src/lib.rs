@@ -68,42 +68,26 @@ where
         self.children.get_mut(&key)
     }
 
-    /// `search_child` searchs for child at the path, returning reference to it if it exists.
-    #[inline]
+    /// `search_child` recursively searchs for child at the path, returning reference to it if it exists.
     pub fn search_child(&self, path: &[K]) -> Option<&Self> {
-        let mut curr = self;
-
-        for p in path {
-            match curr.children.get(p) {
-                None => {
-                    return None;
-                }
-                Some(next) => {
-                    curr = next;
-                }
-            }
+        if path.is_empty() {
+            return Some(self);
         }
 
-        Some(curr)
+        self.children
+            .get(&path[0])
+            .and_then(|child| child.search_child(&path[1..]))
     }
 
-    /// `search_child` searchs for child at the path, returning mutable reference to it if it exists.
-    #[inline]
+    /// `search_child` recursively searchs for child at the path, returning mutable reference to it if it exists.
     pub fn search_child_mut(&mut self, path: &[K]) -> Option<&mut Self> {
-        let mut curr = self;
-
-        for p in path {
-            match curr.children.get_mut(p) {
-                None => {
-                    return None;
-                }
-                Some(next) => {
-                    curr = next;
-                }
-            }
+        if path.is_empty() {
+            return Some(self);
         }
 
-        Some(curr)
+        self.children
+            .get_mut(&path[0])
+            .and_then(|child| child.search_child_mut(&path[1..]))
     }
 
     /// `search` searchs for child at the path, returning boolean value indicating success.
@@ -128,6 +112,7 @@ where
     #[inline]
     pub fn remove(&mut self, path: &[K]) -> Option<Self> {
         let last_idx = path.len() - 1;
+
         self.search_child_mut(&path[..last_idx])
             .and_then(|child| child.children.remove(&path[last_idx]))
     }
@@ -144,13 +129,17 @@ where
     }
 
     /// `predict` collects all children of the child at path `path`, returning None if the child
-    /// does not exist. If the child exists but it has 0 child, then `predict` returns Some(Vec[])
+    /// does not exist or if the child's number of children is 0.
     #[inline]
     pub fn predict(&self, path: &[K]) -> Option<Vec<&V>> {
-        match self.search_child(path) {
-            None => None,
-            Some(node) => Some(node.all_children()),
-        }
+        self.search_child(path).and_then(|child| {
+            let predicted = child.all_children();
+            if predicted.is_empty() {
+                return None;
+            }
+
+            Some(predicted)
+        })
     }
 
     /// `all_children` returns all children with values as a vector of references to the children.
