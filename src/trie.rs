@@ -533,3 +533,33 @@ mod tests {
         assert_eq!(trie.all_children_values().len(), 0);
     }
 }
+
+#[cfg(test)]
+mod benchmarks {
+    extern crate test;
+    use test::Bencher;
+
+    use super::*;
+
+    const BENCH_SIZE: usize = 10_000;
+
+    fn insert_root(i: usize, b: &mut Bencher, trie: &mut Trie<usize, &str>) {
+        b.iter(|| {
+            let inputs: Vec<usize> = (i..BENCH_SIZE).into_iter().collect();
+
+            trie.insert_value(&inputs, "foo");
+
+            assert_eq!(trie.all_children_values().len(), i + 1);
+            assert_eq!(
+                trie.get_child(&inputs).and_then(|child| child.value),
+                Some("foo")
+            );
+        })
+    }
+
+    #[bench]
+    fn insert_bench(b: &mut Bencher) {
+        let mut trie = Trie::new();
+        (0..3).for_each(|i| insert_root(i, b, &mut trie))
+    }
+}

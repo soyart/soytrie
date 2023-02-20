@@ -74,9 +74,8 @@
 //! trie.remove(b"a");  // deletes a
 //! assert_eq!(trie.all_children_values().len(), 0);
 //! ```
-#![feature(test)]
 
-use std::collections::HashMap;
+#![feature(test)]
 
 mod trie;
 pub use trie::*;
