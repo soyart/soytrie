@@ -13,5 +13,5 @@ authors = ["Prem Phansuriyanon"]
 [dependencies]
 
 [badges]
-github = { repository = "artnoi43/soytrie" }
+github = { repository = "artnoi43/soytrie", workflow = "main" }
 maintenance = { status = "actively-developed" }
