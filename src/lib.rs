@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-/// `SearchMode` defines how the trie node treats each match.
+/// Defines how the trie node treats each match.
 pub enum SearchMode {
     /// Entire path has to match, and the final node has to
     /// have some value (i.e. a word).
@@ -11,7 +11,7 @@ pub enum SearchMode {
     Prefix,
 }
 
-/// `TrieNode<K, V>` represents a node in a trie.
+/// A node in a trie.
 /// If using multiple trie trees, consider using `Trie<K, V>`, which has a root node.
 pub struct TrieNode<K, V>
 where
@@ -26,7 +26,7 @@ impl<K, V> TrieNode<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
 {
-    /// `new` creates new TrieNode with value set to None
+    /// Creates new TrieNode with value set to None
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -35,14 +35,14 @@ where
         }
     }
 
-    /// `insert_direct_child` returns the mutable reference of the existing child at key `key`,
+    /// Returns the mutable reference of the existing child at key `key`,
     /// or if it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
     pub fn insert_direct_child(&mut self, key: K, child: Self) -> &mut Self {
         self.children.entry(key).or_insert(child)
     }
 
-    /// `insert` inserts `value` to child at path `path`. If the child does not exist, a new child
+    /// Inserts `value` to child at path `path`. If the child does not exist, a new child
     /// is created and appended to the trie with value `Some(value)`.
     #[inline]
     pub fn insert(&mut self, path: &[K], value: V) {
@@ -56,44 +56,44 @@ where
         curr.value = Some(value);
     }
 
-    /// `get_direct_child` returns a reference to the direct child at key `key`.
+    /// Returns a reference to the direct child at key `key`.
     #[inline]
     pub fn get_direct_child(&self, key: K) -> Option<&Self> {
         self.children.get(&key)
     }
 
-    /// `get_direct_child_mut` returns a mutable reference to the direct child at key `key`.
+    /// Returns a mutable reference to the direct child at key `key`.
     #[inline]
     pub fn get_direct_child_mut(&mut self, key: K) -> Option<&mut Self> {
         self.children.get_mut(&key)
     }
 
-    /// `search_child` recursively searchs for child at the path, returning reference to it if it exists.
-    pub fn search_child(&self, path: &[K]) -> Option<&Self> {
+    /// Recursively searchs for child at the path, returning reference to the child if it exists.
+    pub fn get_child(&self, path: &[K]) -> Option<&Self> {
         if path.is_empty() {
             return Some(self);
         }
 
         self.children
             .get(&path[0])
-            .and_then(|child| child.search_child(&path[1..]))
+            .and_then(|child| child.get_child(&path[1..]))
     }
 
-    /// `search_child` recursively searchs for child at the path, returning mutable reference to it if it exists.
-    pub fn search_child_mut(&mut self, path: &[K]) -> Option<&mut Self> {
+    /// Recursively searchs for child at the path, returning mutable reference to the child if it exists.
+    pub fn get_child_mut(&mut self, path: &[K]) -> Option<&mut Self> {
         if path.is_empty() {
             return Some(self);
         }
 
         self.children
             .get_mut(&path[0])
-            .and_then(|child| child.search_child_mut(&path[1..]))
+            .and_then(|child| child.get_child_mut(&path[1..]))
     }
 
-    /// `search` searchs for child at the path, returning boolean value indicating success.
+    /// Searchs for child at the path, returning boolean value indicating success.
     #[inline]
     pub fn search(&self, mode: SearchMode, path: &[K]) -> bool {
-        match self.search_child(path) {
+        match self.get_child(path) {
             None => false,
             Some(child) => match mode {
                 SearchMode::Prefix => true,
@@ -102,18 +102,17 @@ where
         }
     }
 
-    /// `remove_direct_child` removes and returns the direct owned child at key `key`.
+    /// Removes and returns the direct owned child at key `key`.
     #[inline]
     pub fn remove_direct_child(&mut self, key: K) -> Option<Self> {
         self.children.remove(&key)
     }
 
-    /// `remove` removes the child at path `path`, returning the owned child.
-    #[inline]
+    /// Removes the child at path `path`, returning the owned child.
     pub fn remove(&mut self, path: &[K]) -> Option<Self> {
         let last_idx = path.len() - 1;
 
-        self.search_child_mut(&path[..last_idx])
+        self.get_child_mut(&path[..last_idx])
             .and_then(|child| child.children.remove(&path[last_idx]))
     }
 
@@ -128,11 +127,11 @@ where
         }
     }
 
-    /// `predict` collects all children of the child at path `path`, returning None if the child
+    /// Collects all children of the child at path `path`, returning None if the child
     /// does not exist or if the child's number of children is 0.
     #[inline]
     pub fn predict(&self, path: &[K]) -> Option<Vec<&V>> {
-        self.search_child(path).and_then(|child| {
+        self.get_child(path).and_then(|child| {
             let predicted = child.all_children();
             if predicted.is_empty() {
                 return None;
@@ -142,7 +141,7 @@ where
         })
     }
 
-    /// `all_children` returns all children with values as a vector of references to the children.
+    /// Returns all children with values as a vector of references to the children.
     #[inline]
     pub fn all_children(&self) -> Vec<&V> {
         let children = &mut Vec::new();
@@ -155,6 +154,81 @@ where
     }
 }
 
+impl<K, V> From<V> for TrieNode<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+{
+    fn from(value: V) -> Self {
+        Self {
+            value: Some(value),
+            children: HashMap::new(),
+        }
+    }
+}
+
+/// If `K` and `V` is Clone, then `TrieNode<K, V>` is also `Clone`.
+impl<K, V> Clone for TrieNode<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+    V: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+            children: self.children.clone(),
+        }
+    }
+}
+
+impl<K, V> TrieNode<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+    V: Clone,
+{
+    #[inline]
+    pub fn get_direct_child_clone(&self, key: K) -> Option<Self> {
+        self.children
+            .get(&key)
+            .and_then(|child| Some(child.clone()))
+    }
+
+    #[inline]
+    pub fn get_direct_child_mut_clone(&mut self, key: K) -> Option<Self> {
+        self.children
+            .get_mut(&key)
+            .and_then(|child| Some(child.clone()))
+    }
+
+    /// Clones a `TrieNode<K, V>` out of `self.children`
+    /// ```
+    /// use soytrie::TrieNode;
+    ///
+    /// let mut node = TrieNode::<u8, u8>::new();
+    /// node.insert(b"1", b'1'.into());
+    /// let mut cloned = node.search_child_clone(b"1").expect("no such child");
+    /// cloned.insert(b"2", b'2'.into());
+    ///
+    /// assert_eq!(
+    ///     node.all_children().len(),
+    ///     1,
+    /// );
+    ///
+    /// assert_eq!(
+    ///     cloned.all_children().len(),
+    ///     2,
+    /// );
+    /// ```
+    pub fn search_child_clone(&self, path: &[K]) -> Option<Self> {
+        if path.is_empty() {
+            return Some(self.clone());
+        }
+
+        self.children
+            .get(&path[0])
+            .and_then(|child| child.search_child_clone(&path[1..]))
+    }
+}
+
 pub struct Trie<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
@@ -162,7 +236,7 @@ where
     root: TrieNode<K, V>,
 }
 
-/// `Trie<K, V>` wraps an `TrieNode<K, V>` with value `None` as its root node
+/// Wraps a `TrieNode<K, V>` with value `None` as its root node
 impl<K, V> Trie<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
@@ -249,13 +323,13 @@ mod tests {
         assert_eq!(trie.predict(b"a").expect("a node is None").len(), 3);
         assert_eq!(trie.predict(b"f").expect("f node is None").len(), 3);
 
-        let foob_node = trie.root.search_child(b"foob");
+        let foob_node = trie.root.get_child(b"foob");
         assert_eq!(
             foob_node.expect("foob node is None").all_children().len(),
             2
         );
 
-        let foobar2000_node = trie.search_child(b"foobar2000");
+        let foobar2000_node = trie.get_child(b"foobar2000");
         assert_eq!(
             foobar2000_node
                 .expect("foobar2000 node is None")

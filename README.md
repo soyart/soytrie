@@ -10,7 +10,7 @@ It supports insertion, deep insertion, searching, prediction,
 ## Examples
 
 ```rust
-
+use super::*;
 let mut trie: Trie<u8, &str> = Trie::new();
 
 trie.insert(b"a", "a");
@@ -43,13 +43,13 @@ assert_eq!(trie.all_children().len(), 6);
 assert_eq!(trie.predict(b"a").expect("a node is None").len(), 3);
 assert_eq!(trie.predict(b"f").expect("f node is None").len(), 3);
 
-let foob_node = trie.root.search_child(b"foob");
+let foob_node = trie.root.get_child(b"foob");
 assert_eq!(
     foob_node.expect("foob node is None").all_children().len(),
     2
 );
 
-let foobar2000_node = trie.search_child(b"foobar2000");
+let foobar2000_node = trie.get_child(b"foobar2000");
 assert_eq!(
     foobar2000_node
         .expect("foobar2000 node is None")
