@@ -203,7 +203,7 @@ where
             .for_each(|child| Self::collect_valued_children(child, children));
     }
 
-    // Returns all children of the node.
+    /// Returns all children of the node.
     pub fn all_children(&self) -> Vec<&Self> {
         let mut children = Vec::new();
         Self::collect_children(self, &mut children);
@@ -211,7 +211,7 @@ where
         children
     }
 
-    // Returns all children of the node.
+    /// Returns all children of the node.
     pub fn all_valued_children(&self) -> Vec<&Self> {
         let mut children = Vec::new();
         Self::collect_valued_children(self, &mut children);
@@ -272,6 +272,7 @@ where
     K: Clone + Eq + std::hash::Hash,
     V: Clone,
 {
+    /// Returns cloned child at key `key`.
     #[inline]
     pub fn get_direct_child_clone(&self, key: K) -> Option<Self> {
         self.children
@@ -279,13 +280,7 @@ where
             .and_then(|child| Some(child.clone()))
     }
 
-    #[inline]
-    pub fn get_direct_child_mut_clone(&mut self, key: K) -> Option<Self> {
-        self.children
-            .get_mut(&key)
-            .and_then(|child| Some(child.clone()))
-    }
-
+    /// Returns cloned child at path `path`.
     pub fn search_child_clone(&self, path: &[K]) -> Option<Self> {
         path.is_empty().then_some(self.clone()).or_else(|| {
             self.children
