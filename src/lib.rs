@@ -1,3 +1,5 @@
+#![feature(test)]
+
 use std::collections::HashMap;
 
 /// `SearchMode` defines how the trie node treats each match.
@@ -214,6 +216,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    extern crate test;
+    use test::Bencher;
+
+    use super::*;
+
+    const BENCH_SIZE: usize = 10_000;
+
     #[test]
     fn test_trie() {
         use super::*;
@@ -278,5 +287,25 @@ mod tests {
         assert_eq!(trie.all_children().len(), 1);
         trie.remove(b"a"); // deletes a
         assert_eq!(trie.all_children().len(), 0);
+    }
+
+    fn insert_root(i: usize, b: &mut Bencher, trie: &mut Trie<usize, &str>) {
+        b.iter(|| {
+            let inputs: Vec<usize> = (i..BENCH_SIZE).into_iter().collect();
+
+            trie.insert(&inputs, "foo");
+
+            assert_eq!(trie.all_children().len(), i + 1);
+            assert_eq!(
+                trie.search_child(&inputs).and_then(|child| child.value),
+                Some("foo")
+            );
+        })
+    }
+
+    #[bench]
+    fn insert_bench(b: &mut Bencher) {
+        let mut trie = Trie::new();
+        (0..3).for_each(|i| insert_root(i, b, &mut trie))
     }
 }
