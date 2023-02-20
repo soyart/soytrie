@@ -10,7 +10,7 @@ ___] |__|   |    |  |  \ | |___
 ```
 
 soytrie is a simple, generic Rust implementation of trie using Rust's built-in
-[HashMap](HashMap).
+[HashMap](std::collections::HashMap).
 
 soytrie aims to be minimal, flexible, efficient, and complete.
 
@@ -26,15 +26,14 @@ All operations only traverse down the trie path once.
 
 ## Caveats: Rust ergonomic traits
 
-1. [`PartialEq`](PartialEq) implementation for [`TrieNode`](TrieNode) only compares the values,
-    not the nodes' children.
+1. [`PartialEq`](PartialEq) implementation for [`TrieNode`](TrieNode)
+    only compares the values, not the nodes' children.
 
 2. [`Debug`](Debug) implementation for [`TrieNode`](TrieNode) is expensive -
     it will traverse the whole trie to get all children values to display when debugging.
 
-3. [`From`](From) implementation for [`TrieNode`](TrieNode) only uses the given value to
+3. [`From`](From) implementation for [`TrieNode`](TrieNode) only uses the value to
     construct a node with [`Some(_)`](Some) value and 0 child.
-
 
 ## Examples
 
