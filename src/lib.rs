@@ -386,7 +386,7 @@ mod tests {
 
             assert_eq!(trie.all_children().len(), i + 1);
             assert_eq!(
-                trie.search_child(&inputs).and_then(|child| child.value),
+                trie.get_child(&inputs).and_then(|child| child.value),
                 Some("foo")
             );
         })
