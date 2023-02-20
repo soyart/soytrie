@@ -2,9 +2,16 @@
 name = "soytrie"
 version = "0.1.0"
 edition = "2021"
-authors = ["Prem Phansuriyanon"]
 description = "A generic trie implementation using Rust's HashMap"
+readme = "README.md"
+license = "BSD-3-Clause OR GPL-2.0"
+repository = "https://github.com/artnoi43/soytrie"
+authors = ["Prem Phansuriyanon"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
+[badges]
+github = { repository = "artnoi43/soytrie" }
+maintenance = { status = "actively-developed" }

@@ -1,3 +1,81 @@
+//! soytrie is a simple, generic Rust implementation of trie using Rust's built-in
+//! [HashMap](HashMap).
+//!
+//! soytrie aims to be minimal, flexible, efficient, and complete.
+//!
+//! soytrie does not depend on external crates, except in branch `develop`,
+//! where benchmark code is added.
+//!
+//! # Features
+//!
+//! soytrie supports insertion, deep insertion, searching, prediction,
+//! deletion, and deep deletion via struct [`TrieNode<K, V>`](TrieNode).
+//!
+//! All operations only traverse down the trie path once.
+//!
+//! # Caveats: Rust ergonomic traits
+//!
+//! 1. [`PartialEq`](PartialEq) implementation for [`TrieNode`](TrieNode) only compares the values,
+//!     not the nodes' children.
+//!
+//! 2. [`Debug`](Debug) implementation for [`TrieNode`](TrieNode) is expensive -
+//!     it will traverse the whole trie to get all children values to display when debugging.
+//!
+//! 3. [`From`](From) implementation for [`TrieNode`](TrieNode) only uses the given value to
+//!     construct a node with [`Some(_)`](Some) value and 0 child.
+//!
+//!
+//! # Examples
+//!
+//! ```
+//! use soytrie::{Trie, SearchMode};
+//! let mut trie: Trie<u8, &str> = Trie::new();
+//! trie.insert_value(b"a", "a");
+//! trie.insert_value(b"ab", "ab");
+//! trie.insert_value(b"abc", "abc");
+//! trie.insert_value(b"foo", "foo");
+//! trie.insert_value(b"foobar", "foobar");
+//! trie.insert_value(b"foobar2000", "foobar2000");
+//!
+//! assert_eq!(trie.predict(b"f").unwrap().len(), 3); // foo, foobar, foobar2000
+//! assert_eq!(trie.predict(b"ab").unwrap().len(), 2); // ab, abc
+//! assert_eq!(trie.predict(b"fa"), None);
+//!
+//! assert_eq!(trie.search(SearchMode::Prefix, b"a"), true);
+//! assert_eq!(trie.search(SearchMode::Prefix, b"f"), true);
+//! assert_eq!(trie.search(SearchMode::Prefix, b"fa"), false);
+//! assert_eq!(trie.search(SearchMode::Prefix, b"bar"), false);
+//!
+//! assert_eq!(trie.search(SearchMode::Exact, b"f"), false);
+//! assert_eq!(trie.search(SearchMode::Exact, b"foo"), true);
+//!
+//! // Node at f>o>o>b>a>r>2 only has 1 child with value: foobar2000
+//! assert_eq!(
+//!     trie.get_child_mut(b"foobar2")
+//!         .expect("bad get_child_mut")
+//!         .all_children_values().len(),
+//!     1,
+//! );
+//!
+//! // [a, ab, abc, foo, foobar, foobar2000]
+//! assert_eq!(trie.all_children_values().len(), 6);
+//!
+//! trie.remove(b"abc"); // deletes abc
+//! assert_eq!(trie.all_children_values().len(), 5);
+//!
+//! trie.remove(b"ab"); // deletes ab
+//! assert_eq!(trie.all_children_values().len(), 4);
+//!
+//! trie.remove(b"ab"); // does nothing
+//! assert_eq!(trie.all_children_values().len(), 4);
+//!
+//! trie.remove(b"fo");  // deletes foo, foobar, foobar2000
+//! assert_eq!(trie.all_children_values().len(), 1);
+//!
+//! trie.remove(b"a");  // deletes a
+//! assert_eq!(trie.all_children_values().len(), 0);
+//! ```
+
 use std::collections::HashMap;
 
 /// Defines how the trie node treats each match.
@@ -14,6 +92,7 @@ pub enum SearchMode {
 /// A node in a trie.
 /// In this trie implementation, a node can be either a _value node_, or a _path node_.
 /// A value node has [`Some(V)`](Some) in the value field, while path node has [`None`](None).
+/// Fields `value` and `children` are uncorrelated and can be used arbitarily.
 /// If using multiple tries, consider using [`Trie<K, V>`](Trie), which has a path node as root.
 pub struct TrieNode<K, V>
 where
@@ -24,11 +103,50 @@ where
     children: HashMap<K, TrieNode<K, V>>,
 }
 
+/// # Non-`Clone` implementation usage examples
+/// ```
+/// # use soytrie::TrieNode;
+/// let mut root: TrieNode<u8, &str> = TrieNode::new(); // Creates a root node with value None
+/// let node = TrieNode::from("foo"); // Creates a node with value Some("foo")
+/// root.insert_child(b"foo", node);
+/// root.insert_value(b"foobar", "foobar");
+/// root.insert_child(b"baz", "baz".into()); // TrieNode also implements From<T>
+///
+/// assert!(root.get_direct_child(b'a').is_none());
+///
+/// {
+///     let f_node = root.get_child_mut(b"f").unwrap();
+///     f_node.insert_child(b"a", "fa".into());
+/// }
+///
+/// assert_eq!(root.all_children_values().len(), 4); // "baz", "fa", "foo", "foobar"
+/// assert_eq!(root.predict(b"f").unwrap().len(), 3); // "fa", "foo", "foobar"
+///
+/// root.remove(b"fo"); // deletes "foo", "foobar"
+/// assert_eq!(root.all_children_values().len(), 2); // "baz", "fa"
+///
+/// {
+///     let f_node = root.get_direct_child_mut(b'f').unwrap();
+///     assert_eq!(f_node.all_children_values().len(), 1); // "fa"
+///     f_node.insert_value(b"z", "fz");
+///     assert_eq!(f_node.all_children_values().len(), 2); // "fa" "fz"
+/// }
+///
+/// assert_eq!(root.all_children_values().len(), 3); // "baz", "fa", "fz"
+/// ```
 impl<K, V> TrieNode<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
 {
     /// Creates new node with value set to [None](None).
+    /// If you want to create a node from a value, use [`from`](From) instead:
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut root = TrieNode::new();
+    /// let node = TrieNode::from("foo"); // Creates a node with value Some("foo")
+    ///
+    /// root.insert_child(b"foo", node);
+    /// ```
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -40,33 +158,47 @@ where
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn insert_direct_child<T>(&mut self, key: K, child: T) -> &mut Self
+    pub fn insert_direct_value<T>(&mut self, key: K, child: T) -> &mut Self
     where
         T: Into<Self>,
     {
         self.children.entry(key).or_insert(child.into())
     }
 
-    /// Inserts `value` to child at path `path`. If the child does not exist, a new child
-    /// is created and appended to the trie with value `Some(value)`.
+    /// Returns the mutable reference of the existing child at key `key`.
+    /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn insert(&mut self, path: &[K], value: V) {
-        // The recursive and more functional implementation performs worse than the current imperative version.
+    pub fn insert_direct_child(&mut self, key: K, child: Self) -> &mut Self {
+        self.children.entry(key).or_insert(child)
+    }
+
+    /// Inserts `child` at path `path`. The implementation does not use recursion, so deep
+    /// insertion will not cost long call stacks.
+    pub fn insert_child(&mut self, path: &[K], child: Self) {
         // if path.is_empty() {
-        //     self.value = Some(value);
+        //     *self = child;
         //     return;
         // }
         //
-        // self.insert_direct_child(path[0].clone(), TrieNode::new())
-        //     .insert(&path[1..], value)
+        // self.children
+        //     .entry(path[0].clone())
+        //     .or_insert(Self::new())
+        //     .insert_child(&path[1..], child);
 
         let mut curr = self;
         for p in path {
-            let next = curr.insert_direct_child(p.clone(), TrieNode::new());
+            let next = curr.insert_direct_value(p.clone(), Self::new());
             curr = next;
         }
 
-        curr.value = Some(value);
+        *curr = child;
+    }
+
+    /// Inserts `value` to child at path `path`. If the child does not exist, a new child
+    /// is created and appended to the trie with value `Some(value)`.
+    #[inline]
+    pub fn insert_value(&mut self, path: &[K], value: V) {
+        self.insert_child(path, value.into());
     }
 
     /// Returns a reference to the direct child at key `key`.
@@ -83,13 +215,11 @@ where
 
     /// Recursively searchs for child at the path, returning reference to the child if it exists.
     pub fn get_child(&self, path: &[K]) -> Option<&Self> {
-        if path.is_empty() {
-            return Some(self);
-        }
-
-        self.children
-            .get(&path[0])
-            .and_then(|child| child.get_child(&path[1..]))
+        path.is_empty().then_some(self).or_else(|| {
+            self.children
+                .get(&path[0])
+                .and_then(|child| child.get_child(&path[1..]))
+        })
     }
 
     /// Recursively searchs for child at the path, returning mutable reference to the child if it exists.
@@ -135,18 +265,45 @@ where
         'l: 's,
     {
         children.push(node);
-        for child in node.children.values() {
-            Self::collect_children(child, children);
-        }
+
+        node.children
+            .values()
+            .for_each(|child| Self::collect_children(child, children));
     }
 
-    /// Returns all children that are _value nodes_ as a vector of references to the children.
-    #[inline]
-    pub fn all_children(&self) -> Vec<&V> {
-        let children = &mut Vec::new();
-        Self::collect_children(self, children);
+    /// Recursively collects all extant valued children of `node`.
+    fn collect_valued_children<'s, 'l>(node: &'l Self, children: &mut Vec<&'s Self>)
+    where
+        'l: 's,
+    {
+        children.push(node);
+
+        node.children
+            .values()
+            .filter(|child| child.value.is_some())
+            .for_each(|child| Self::collect_valued_children(child, children));
+    }
+
+    // Returns all children of the node.
+    pub fn all_children(&self) -> Vec<&Self> {
+        let mut children = Vec::new();
+        Self::collect_children(self, &mut children);
 
         children
+    }
+
+    // Returns all children of the node.
+    pub fn all_valued_children(&self) -> Vec<&Self> {
+        let mut children = Vec::new();
+        Self::collect_valued_children(self, &mut children);
+
+        children
+    }
+
+    /// Returns all values of valued children as a vector of references to the children.
+    #[inline]
+    pub fn all_children_values(&self) -> Vec<&V> {
+        self.all_children()
             .iter()
             .filter_map(|child| child.value.as_ref())
             .collect()
@@ -158,7 +315,7 @@ where
     #[inline]
     pub fn predict(&self, path: &[K]) -> Option<Vec<&V>> {
         self.get_child(path).and_then(|child| {
-            let predicted = child.all_children();
+            let predicted = child.all_children_values();
 
             if predicted.is_empty() {
                 return None;
@@ -169,32 +326,28 @@ where
     }
 }
 
-impl<K, V> From<V> for TrieNode<K, V>
-where
-    K: Clone + Eq + std::hash::Hash,
-{
-    fn from(value: V) -> Self {
-        Self {
-            value: Some(value),
-            children: HashMap::new(),
-        }
-    }
-}
-
-/// If `K` and `V` is Clone, then `TrieNode<K, V>` is also `Clone`.
-impl<K, V> Clone for TrieNode<K, V>
-where
-    K: Clone + Eq + std::hash::Hash,
-    V: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            value: self.value.clone(),
-            children: self.children.clone(),
-        }
-    }
-}
-
+/// This impl defines extra methods for [TrieNode<K, V> where V: Clone]. It methods in here
+/// will receive or return a cloned value that had no reference to the previous parent trie.
+/// ```
+/// use soytrie::TrieNode;
+///
+/// let mut node = TrieNode::<u8, u8>::new();
+/// node.insert_child(b"1", b'1'.into());
+/// let mut cloned = node.search_child_clone(b"1").expect("no such child");
+/// cloned.insert_child(b"2", b'2'.into());
+///
+/// // '2' was not insert into node's trie, only cloned's trie
+///
+/// assert_eq!(
+///     node.all_children_values().len(),
+///     1,
+/// );
+///
+/// assert_eq!(
+///     cloned.all_children_values().len(),
+///     2,
+/// );
+/// ```
 impl<K, V> TrieNode<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
@@ -214,33 +367,104 @@ where
             .and_then(|child| Some(child.clone()))
     }
 
-    /// Clones a `TrieNode<K, V>` out of `self.children`
-    /// ```
-    /// use soytrie::TrieNode;
-    ///
-    /// let mut node = TrieNode::<u8, u8>::new();
-    /// node.insert(b"1", b'1'.into());
-    /// let mut cloned = node.search_child_clone(b"1").expect("no such child");
-    /// cloned.insert(b"2", b'2'.into());
-    ///
-    /// assert_eq!(
-    ///     node.all_children().len(),
-    ///     1,
-    /// );
-    ///
-    /// assert_eq!(
-    ///     cloned.all_children().len(),
-    ///     2,
-    /// );
-    /// ```
     pub fn search_child_clone(&self, path: &[K]) -> Option<Self> {
-        if path.is_empty() {
-            return Some(self.clone());
-        }
+        path.is_empty().then_some(self.clone()).or_else(|| {
+            self.children
+                .get(&path[0])
+                .and_then(|child| child.search_child_clone(&path[1..]))
+        })
+    }
+}
 
-        self.children
-            .get(&path[0])
-            .and_then(|child| child.search_child_clone(&path[1..]))
+/// Creates a valued [node](TrieNode) using [`Some(_)`](Some)
+/// without children. Only the [value field](TrieNode::value) is populated.
+/// ```
+/// # use soytrie::TrieNode;
+/// # use std::collections::HashMap;
+/// let node1: TrieNode<u8, String> = "node".to_string().into();
+/// assert_eq!(node1.value, Some("node".to_string()));
+/// ```
+impl<K, V> From<V> for TrieNode<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+{
+    fn from(value: V) -> Self {
+        Self {
+            value: Some(value),
+            children: HashMap::new(),
+        }
+    }
+}
+
+/// Creates a node from [`Option<V>`](Option) without wrapping it in another [`Some(Some(_))`](Some).
+///```
+/// # use soytrie::TrieNode;
+/// # use std::collections::HashMap;
+/// let node1: TrieNode<u8, String> = "node".to_string().into();
+/// assert!(node1 == TrieNode::from(Some("node".to_string())));
+/// ```
+impl<K, V> From<Option<V>> for TrieNode<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+{
+    fn from(opt: Option<V>) -> Self {
+        Self {
+            value: opt,
+            children: HashMap::new(),
+        }
+    }
+}
+
+/// PartialEq for [TrieNode<K, V>](TrieNode) compares the [value field](TrieNode::value)
+/// for equality. As of now, the node's children is not taken into consideration.
+/// ```
+/// # use soytrie::TrieNode;
+/// # use std::collections::HashMap;
+/// let mut node1: TrieNode<u8, String> = "node".to_string().into();
+/// node1.insert_value(b"e", "e".to_string());
+///
+/// let mut node2: TrieNode<u8, String> = "node".to_string().into();
+/// node2.insert_value(b"f", "f".to_string());
+///
+/// assert!(node1 == node2) // ok, because we only compare values
+/// ```
+impl<K, V> PartialEq<Self> for TrieNode<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+    V: PartialEq,
+{
+    fn eq(&self, rhs: &Self) -> bool {
+        self.value == rhs.value
+    }
+}
+
+/// `Debug` for [`TrieNode`](TrieNode) is quite expensive - the node will call
+/// [`self.all_children_values`](TrieNode::all_children) to traverse the entire trie and
+/// collect all valued children of `self`. It should only be used when debugging.
+impl<K, V> std::fmt::Debug for TrieNode<K, V>
+where
+    K: Clone + Eq + std::hash::Hash + std::fmt::Debug,
+    V: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        f.debug_struct("Point")
+            .field("children", &self.all_children_values())
+            .field("value", &self.value)
+            .finish()
+    }
+}
+
+/// If `K` and `V` is Clone, then `TrieNode<K, V>` is also `Clone`.
+impl<K, V> Clone for TrieNode<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+    V: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+            children: self.children.clone(),
+        }
     }
 }
 
@@ -251,7 +475,7 @@ where
     root: TrieNode<K, V>,
 }
 
-/// Wraps a `TrieNode<K, V>` with value `None` as its root node
+/// Wraps a `TrieNode<K, V>` with value `None` as its root node.
 impl<K, V> Trie<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
@@ -260,6 +484,19 @@ where
     pub fn new() -> Self {
         Self {
             root: TrieNode::new(),
+        }
+    }
+}
+
+// Clones self's root to new trie root.
+impl<K, V> Clone for Trie<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+    V: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            root: self.root.clone(),
         }
     }
 }
@@ -306,14 +543,14 @@ mod tests {
     #[test]
     fn test_trie() {
         use super::*;
-        let mut trie: Trie<u8, &str> = Trie::new();
 
-        trie.insert(b"a", "a");
-        trie.insert(b"ab", "ab");
-        trie.insert(b"abc", "abc");
-        trie.insert(b"foo", "foo");
-        trie.insert(b"foobar", "foobar");
-        trie.insert(b"foobar2000", "foobar2000");
+        let mut trie: Trie<u8, &str> = Trie::new();
+        trie.insert_value(b"a", "a");
+        trie.insert_value(b"ab", "ab");
+        trie.insert_value(b"abc", "abc");
+        trie.insert_value(b"foo", "foo");
+        trie.insert_value(b"foobar", "foobar");
+        trie.insert_value(b"foobar2000", "foobar2000");
 
         assert_eq!(trie.predict(b"f").expect("bad predict").len(), 3); // foo, foobar, foobar2000
         assert_eq!(trie.predict(b"ab").expect("bad predict").len(), 2); // ab, abc
@@ -334,13 +571,16 @@ mod tests {
         assert_eq!(trie.search(SearchMode::Exact, b"fooba"), false);
         assert_eq!(trie.search(SearchMode::Exact, b"foobar"), true);
 
-        assert_eq!(trie.all_children().len(), 6);
+        assert_eq!(trie.all_children_values().len(), 6);
         assert_eq!(trie.predict(b"a").expect("a node is None").len(), 3);
         assert_eq!(trie.predict(b"f").expect("f node is None").len(), 3);
 
         let foob_node = trie.root.get_child(b"foob");
         assert_eq!(
-            foob_node.expect("foob node is None").all_children().len(),
+            foob_node
+                .expect("foob node is None")
+                .all_children_values()
+                .len(),
             2
         );
 
@@ -348,24 +588,25 @@ mod tests {
         assert_eq!(
             foobar2000_node
                 .expect("foobar2000 node is None")
-                .all_children()
+                .all_children_values()
                 .len(),
             1,
         );
 
         let foobar2000_node = trie.remove(b"foobar2000").expect("foobar2000 node is None");
-        assert_eq!(foobar2000_node.all_children().len(), 1);
+        assert_eq!(foobar2000_node.all_children_values().len(), 1);
         assert_eq!(foobar2000_node.value, Some("foobar2000"));
-        assert_eq!(trie.all_children().len(), 5);
+
+        assert_eq!(trie.all_children_values().len(), 5);
         trie.remove(b"abc"); // deletes abc
-        assert_eq!(trie.all_children().len(), 4);
+        assert_eq!(trie.all_children_values().len(), 4);
         trie.remove(b"ab"); // deletes ab
-        assert_eq!(trie.all_children().len(), 3);
+        assert_eq!(trie.all_children_values().len(), 3);
         trie.remove(b"ab"); // deletes ab
-        assert_eq!(trie.all_children().len(), 3);
+        assert_eq!(trie.all_children_values().len(), 3);
         trie.remove(b"f"); // deletes f, fo, foo
-        assert_eq!(trie.all_children().len(), 1);
+        assert_eq!(trie.all_children_values().len(), 1);
         trie.remove(b"a"); // deletes a
-        assert_eq!(trie.all_children().len(), 0);
+        assert_eq!(trie.all_children_values().len(), 0);
     }
 }
