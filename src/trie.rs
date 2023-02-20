@@ -253,7 +253,7 @@ where
 ///
 /// let mut node = TrieNode::<u8, u8>::new();
 /// node.insert_child(b"1", b'1'.into());
-/// let mut cloned = node.search_child_clone(b"1").expect("no such child");
+/// let mut cloned = node.get_child_clone(b"1").expect("no such child");
 /// cloned.insert_child(b"2", b'2'.into());
 ///
 /// // '2' was not insert into node's trie, only cloned's trie
@@ -282,11 +282,11 @@ where
     }
 
     /// Returns cloned child at path `path`.
-    pub fn search_child_clone(&self, path: &[K]) -> Option<Self> {
+    pub fn get_child_clone(&self, path: &[K]) -> Option<Self> {
         path.is_empty().then_some(self.clone()).or_else(|| {
             self.children
                 .get(&path[0])
-                .and_then(|child| child.search_child_clone(&path[1..]))
+                .and_then(|child| child.get_child_clone(&path[1..]))
         })
     }
 }
