@@ -92,8 +92,10 @@ where
         self.children.entry(key).or_insert(child)
     }
 
-    /// Inserts `child` at path `path`. The implementation does not use recursion, so deep
-    /// insertion will not cost long call stacks.
+    /// Inserts `child` at path `path`. If the child already exists, it is assigned a completely new value
+    /// and 0 children. This means that `insert_child` destroys the existing node, so if you want
+    /// to keep the children but change the value when inserting, use `insert_value` instead.
+    /// Note: The implementation does not use recursion, so deep insertion will not cost long call stacks.
     pub fn insert_child(&mut self, path: &[K], child: Self) {
         // if path.is_empty() {
         //     *self = child;
@@ -114,11 +116,33 @@ where
         *curr = child;
     }
 
-    /// Inserts `value` to child at path `path`. If the child does not exist, a new child
+    /// Inserts `value` to child at path `path`. If the child already exists, insert_value changes
+    /// only the `value` field of the child. If the child does not exist, a new child
     /// is created and appended to the trie with value `Some(value)`.
+    ///```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    ///
+    /// node.insert_value(b"a", "a"); // This adds valued node at "a"
+    /// node.insert_value(b"ab", "ab"); // This adds valued node at "b"
+    /// node.insert_value(b"abcde", "abcde"); // This adds path nodes at "c", "d", and valued node at "e"
+    ///
+    /// assert_eq!(node.all_valued_children().len(), 3); // valued nodes: "a", "b", "e"
+    ///
+    /// node.insert_child(b"ab", "ab".into()); // This call to insert_child drops the old value at
+    /// // "b" and adds a fresh, new valued node at "b". The "b" node's children was dropped.
+    ///
+    /// assert_eq!(node.all_valued_children().len(), 2); // valued nodes: "a", "b", "e", and "z"
+    /// ```
     #[inline]
     pub fn insert_value(&mut self, path: &[K], value: V) {
-        self.insert_child(path, value.into());
+        let mut curr = self;
+        for p in path {
+            let next = curr.insert_direct_value(p.clone(), Self::new());
+            curr = next;
+        }
+
+        curr.value = Some(value);
     }
 
     /// Returns a reference to the direct child at key `key`.
@@ -454,7 +478,7 @@ where
     }
 }
 
-// Returns the reference to root node
+// Returns the mutable reference to root node
 impl<K, V> AsMut<TrieNode<K, V>> for Trie<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
