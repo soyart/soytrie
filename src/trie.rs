@@ -10,8 +10,8 @@ pub enum SearchMode {
 }
 
 /// A trie node backed by [HashMap](HashMap).
-/// In this trie implementation, a node can be either a _value node_, or a _path node_.
-/// A value node has [`Some(_)`](Some) in the value field, while path node has [`None`](None).
+/// In this trie implementation, a node can be either a _valued node_, or a _path node_.
+/// A valued node has [`Some(_)`](Some) in the value field, while path node has [`None`](None).
 /// Fields `value` and `children` are uncorrelated and can be used arbitarily.
 /// If using multiple tries, consider using [`Trie<K, V>`](Trie), which has a path node as root.
 pub struct TrieNode<K, V>
@@ -191,20 +191,18 @@ where
             .for_each(|child| Self::collect_children(child, children));
     }
 
-    /// Recursively collects all extant valued children of `node`.
-    fn collect_valued_children<'s, 'l>(node: &'l Self, children: &mut Vec<&'s Self>)
-    where
-        'l: 's,
-    {
-        children.push(node);
-
-        node.children
-            .values()
-            .filter(|child| child.value.is_some())
-            .for_each(|child| Self::collect_valued_children(child, children));
-    }
-
     /// Returns all children of the node.
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    ///
+    /// node.insert_value(b"a", "a"); // Adds valued node at "a"
+    /// node.insert_value(b"ab", "ab"); // Adds valued node at "b"
+    /// node.insert_value(b"abcde", "abcde"); // Adds path nodes at "c", "d", and valued node at "e"
+    /// node.insert_value(b"xyz", "xyz"); // Adds path nodes at "x", "y", and valued node at "z"
+    ///
+    /// assert_eq!(node.all_children().len(), 9); // nodes: a, b, c, d, e, x, y, z and root node
+    /// ```
     pub fn all_children(&self) -> Vec<&Self> {
         let mut children = Vec::new();
         Self::collect_children(self, &mut children);
@@ -212,12 +210,24 @@ where
         children
     }
 
-    /// Returns all children of the node.
+    /// Returns all valued child nodes of the node.
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    ///
+    /// node.insert_value(b"a", "a"); // This adds valued node at "a"
+    /// node.insert_value(b"ab", "ab"); // This adds valued node at "b"
+    /// node.insert_value(b"abcde", "abcde"); // This adds path nodes at "c", "d", and valued node at "e"
+    /// node.insert_value(b"xyz", "xyz"); // Adds path nodes at "x", "y", and valued node at "z"
+    ///
+    /// println!("{:?}", node.all_valued_children());
+    /// assert_eq!(node.all_valued_children().len(), 4); // valued nodes: "a", "b", "e", and "z"
+    /// ```
     pub fn all_valued_children(&self) -> Vec<&Self> {
-        let mut children = Vec::new();
-        Self::collect_valued_children(self, &mut children);
-
-        children
+        self.all_children()
+            .into_iter()
+            .filter(|child| child.value.is_some())
+            .collect()
     }
 
     /// Returns all values of valued children as a vector of references to the children.
@@ -229,9 +239,18 @@ where
             .collect()
     }
 
+    /// Returns all values of valued children as a vector of references to the children.
+    #[inline]
+    pub fn all_children_values_ng(&self) -> Vec<&V> {
+        self.all_valued_children()
+            .iter()
+            .flat_map(|child| child.value.as_ref())
+            .collect()
+    }
+
     /// Collects all values of the children of the child at path `path`, returning [`None`](None)
     /// if the child does not exist or if the child's number of children is 0. Otherwise, the
-    /// references to values is collected as [`Some(Vec<&V>)`](Some)
+    /// references to values is collected as [`Some(Vec<&V>)`](Some).
     #[inline]
     pub fn predict(&self, path: &[K]) -> Option<Vec<&V>> {
         self.get_child(path).and_then(|child| {
