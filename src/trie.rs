@@ -362,7 +362,7 @@ where
     V: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        f.debug_struct("Point")
+        f.debug_struct("TrieNode")
             .field("children", &self.all_children_values())
             .field("value", &self.value)
             .finish()
