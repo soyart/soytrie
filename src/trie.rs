@@ -448,7 +448,7 @@ where
     root: TrieNode<K, V>,
 }
 
-/// Wraps a `TrieNode<K, V>` with value `None` as its root node.
+/// Wraps a [`TrieNode<K, V>`](TrieNode) with value [`None`](None) as its root node.
 impl<K, V> Trie<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
