@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 /// Defines how the trie node treats each match.
+#[derive(Clone)]
 pub enum SearchMode {
     /// Exact gets valued node
     Exact,
@@ -203,7 +204,7 @@ where
             .for_each(|child| Self::collect_valued_children(child, children));
     }
 
-    // Returns all children of the node.
+    /// Returns all children of the node.
     pub fn all_children(&self) -> Vec<&Self> {
         let mut children = Vec::new();
         Self::collect_children(self, &mut children);
@@ -211,7 +212,7 @@ where
         children
     }
 
-    // Returns all children of the node.
+    /// Returns all children of the node.
     pub fn all_valued_children(&self) -> Vec<&Self> {
         let mut children = Vec::new();
         Self::collect_valued_children(self, &mut children);
@@ -252,7 +253,7 @@ where
 ///
 /// let mut node = TrieNode::<u8, u8>::new();
 /// node.insert_child(b"1", b'1'.into());
-/// let mut cloned = node.search_child_clone(b"1").expect("no such child");
+/// let mut cloned = node.get_child_clone(b"1").expect("no such child");
 /// cloned.insert_child(b"2", b'2'.into());
 ///
 /// // '2' was not insert into node's trie, only cloned's trie
@@ -272,6 +273,7 @@ where
     K: Clone + Eq + std::hash::Hash,
     V: Clone,
 {
+    /// Returns cloned child at key `key`.
     #[inline]
     pub fn get_direct_child_clone(&self, key: K) -> Option<Self> {
         self.children
@@ -279,18 +281,12 @@ where
             .and_then(|child| Some(child.clone()))
     }
 
-    #[inline]
-    pub fn get_direct_child_mut_clone(&mut self, key: K) -> Option<Self> {
-        self.children
-            .get_mut(&key)
-            .and_then(|child| Some(child.clone()))
-    }
-
-    pub fn search_child_clone(&self, path: &[K]) -> Option<Self> {
+    /// Returns cloned child at path `path`.
+    pub fn get_child_clone(&self, path: &[K]) -> Option<Self> {
         path.is_empty().then_some(self.clone()).or_else(|| {
             self.children
                 .get(&path[0])
-                .and_then(|child| child.search_child_clone(&path[1..]))
+                .and_then(|child| child.get_child_clone(&path[1..]))
         })
     }
 }
@@ -366,7 +362,7 @@ where
     V: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        f.debug_struct("Point")
+        f.debug_struct("TrieNode")
             .field("children", &self.all_children_values())
             .field("value", &self.value)
             .finish()
