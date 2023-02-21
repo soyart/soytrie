@@ -220,7 +220,6 @@ where
     /// node.insert_value(b"abcde", "abcde"); // This adds path nodes at "c", "d", and valued node at "e"
     /// node.insert_value(b"xyz", "xyz"); // Adds path nodes at "x", "y", and valued node at "z"
     ///
-    /// println!("{:?}", node.all_valued_children());
     /// assert_eq!(node.all_valued_children().len(), 4); // valued nodes: "a", "b", "e", and "z"
     /// ```
     pub fn all_valued_children(&self) -> Vec<&Self> {
@@ -231,20 +230,20 @@ where
     }
 
     /// Returns all values of valued children as a vector of references to the children.
+    /// ```
+    /// use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    ///
+    /// node.insert_value(b"abc", "abc"); // This adds path nodes at "a" and "b", and valued node at "c"
+    /// node.insert_value(b"xyz", "xyz"); // Adds path nodes at "x", "y", and valued node at "z"
+    ///
+    /// assert_eq!(node.all_valued_children().len(), 2); // valued nodes: "abc", "xyz"
+    /// ```
     #[inline]
     pub fn all_children_values(&self) -> Vec<&V> {
         self.all_children()
             .iter()
             .filter_map(|child| child.value.as_ref())
-            .collect()
-    }
-
-    /// Returns all values of valued children as a vector of references to the children.
-    #[inline]
-    pub fn all_children_values_ng(&self) -> Vec<&V> {
-        self.all_valued_children()
-            .iter()
-            .flat_map(|child| child.value.as_ref())
             .collect()
     }
 
