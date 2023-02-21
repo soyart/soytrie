@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 /// Defines how the trie node treats each match.
-#[derive(Clone)]
+#[derive(PartialEq)]
 pub enum SearchMode {
     /// Exact gets valued node
     Exact,
@@ -94,6 +94,7 @@ where
 
     /// Inserts `child` at path `path`. The implementation does not use recursion, so deep
     /// insertion will not cost long call stacks.
+    #[inline]
     pub fn insert_child(&mut self, path: &[K], child: Self) {
         // if path.is_empty() {
         //     *self = child;
@@ -116,7 +117,7 @@ where
 
     /// Inserts `value` to child at path `path`. If the child does not exist, a new child
     /// is created and appended to the trie with value `Some(value)`.
-    #[inline]
+    #[inline(always)]
     pub fn insert_value(&mut self, path: &[K], value: V) {
         self.insert_child(path, value.into());
     }
@@ -131,6 +132,28 @@ where
     #[inline(always)]
     pub fn get_direct_child_mut(&mut self, key: K) -> Option<&mut Self> {
         self.children.get_mut(&key)
+    }
+
+    /// Returns a boolean indicating success.
+    /// ```
+    /// # use soytrie::{TrieNode, SearchMode};
+    /// let mut node = TrieNode::new();
+    /// node.insert_value(b"abc", "abc"); // node at "a" is direct child, but a path node
+    /// node.insert_value(b"x", "x"); // node at "x" is both direct child and valued node
+    ///
+    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, b'a'), true);
+    /// assert_eq!(node.has_direct_child(SearchMode::Exact, b'a'), false);
+    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, b'b'), false);
+    /// assert_eq!(node.has_direct_child(SearchMode::Exact, b'b'), false);
+    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, b'x'), true);
+    /// assert_eq!(node.has_direct_child(SearchMode::Exact, b'x'), true);
+    /// ```
+    #[inline(always)]
+    pub fn has_direct_child(&self, mode: SearchMode, key: K) -> bool {
+        self.children.get(&key).is_some_and(|child| match mode {
+            SearchMode::Exact => child.value.is_some(),
+            SearchMode::Prefix => true,
+        })
     }
 
     /// Recursively searchs for child at the path, returning reference to the child if it exists.
@@ -220,7 +243,6 @@ where
     /// node.insert_value(b"abcde", "abcde"); // This adds path nodes at "c", "d", and valued node at "e"
     /// node.insert_value(b"xyz", "xyz"); // Adds path nodes at "x", "y", and valued node at "z"
     ///
-    /// println!("{:?}", node.all_valued_children());
     /// assert_eq!(node.all_valued_children().len(), 4); // valued nodes: "a", "b", "e", and "z"
     /// ```
     pub fn all_valued_children(&self) -> Vec<&Self> {
@@ -231,20 +253,20 @@ where
     }
 
     /// Returns all values of valued children as a vector of references to the children.
+    /// ```
+    /// use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    ///
+    /// node.insert_value(b"abc", "abc"); // This adds path nodes at "a" and "b", and valued node at "c"
+    /// node.insert_value(b"xyz", "xyz"); // Adds path nodes at "x", "y", and valued node at "z"
+    ///
+    /// assert_eq!(node.all_valued_children().len(), 2); // valued nodes: "abc", "xyz"
+    /// ```
     #[inline]
     pub fn all_children_values(&self) -> Vec<&V> {
         self.all_children()
             .iter()
             .filter_map(|child| child.value.as_ref())
-            .collect()
-    }
-
-    /// Returns all values of valued children as a vector of references to the children.
-    #[inline]
-    pub fn all_children_values_ng(&self) -> Vec<&V> {
-        self.all_valued_children()
-            .iter()
-            .flat_map(|child| child.value.as_ref())
             .collect()
     }
 

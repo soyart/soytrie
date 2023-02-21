@@ -76,6 +76,7 @@
 //! ```
 
 #![feature(test)]
+#![feature(is_some_and)]
 
 mod trie;
 pub use trie::*;
