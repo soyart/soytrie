@@ -454,6 +454,16 @@ where
     }
 }
 
+// Returns the reference to root node
+impl<K, V> AsMut<TrieNode<K, V>> for Trie<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+{
+    fn as_mut(&mut self) -> &mut TrieNode<K, V> {
+        &mut self.root
+    }
+}
+
 // Derefs to the root node
 impl<K, V> std::ops::Deref for Trie<K, V>
 where
