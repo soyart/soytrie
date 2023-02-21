@@ -75,5 +75,7 @@
 //! assert_eq!(trie.all_children_values().len(), 0);
 //! ```
 
+#![feature(is_some_and)]
+
 mod trie;
 pub use trie::*;
