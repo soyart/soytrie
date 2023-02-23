@@ -26,13 +26,13 @@ where
 /// # Non-`Clone` implementation usage examples
 /// ```
 /// # use soytrie::TrieNode;
-/// let mut root: TrieNode<u8, &str> = TrieNode::new(); // Creates a root node with value None
+/// let mut root = TrieNode::new(); // Creates a root node with value None
 /// let node = TrieNode::from("foo"); // Creates a node with value Some("foo")
 /// root.insert_child(b"foo", node);
 /// root.insert_value(b"foobar", "foobar");
 /// root.insert_child(b"baz", "baz".into()); // TrieNode also implements From<T>
 ///
-/// assert!(root.get_direct_child(b'a').is_none());
+/// assert!(root.get_direct_child(&b'a').is_none());
 ///
 /// {
 ///     let f_node = root.get_child_mut(b"f").unwrap();
@@ -46,7 +46,7 @@ where
 /// assert_eq!(root.all_children_values().len(), 2); // "baz", "fa"
 ///
 /// {
-///     let f_node = root.get_direct_child_mut(b'f').unwrap();
+///     let f_node = root.get_direct_child_mut(&b'f').unwrap();
 ///     assert_eq!(f_node.all_children_values().len(), 1); // "fa"
 ///     f_node.insert_value(b"z", "fz");
 ///     assert_eq!(f_node.all_children_values().len(), 2); // "fa" "fz"
@@ -160,13 +160,19 @@ where
 
     /// Returns a reference to the direct child at key `key`.
     #[inline(always)]
-    pub fn get_direct_child(&self, key: K) -> Option<&Self> {
+    pub fn get_direct_child<Q>(&self, key: Q) -> Option<&Self>
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
         self.children.get(&key)
     }
 
     /// Returns a mutable reference to the direct child at key `key`.
     #[inline(always)]
-    pub fn get_direct_child_mut(&mut self, key: K) -> Option<&mut Self> {
+    pub fn get_direct_child_mut<Q>(&mut self, key: Q) -> Option<&mut Self>
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
         self.children.get_mut(&key)
     }
 
@@ -195,8 +201,7 @@ where
     /// Recursively searchs for child at the path, returning reference to the child if it exists.
     pub fn get_child(&self, path: &[K]) -> Option<&Self> {
         path.is_empty().then_some(self).or_else(|| {
-            self.children
-                .get(&path[0])
+            self.get_direct_child(&path[0])
                 .and_then(|child| child.get_child(&path[1..]))
         })
     }
@@ -306,10 +311,24 @@ where
             .collect()
     }
 
-    /// Collects all values of the children of the child at path `path`, returning [`None`](None)
-    /// if the child does not exist or if the child's number of children is 0. Otherwise, the
-    /// references to values is collected as [`Some(Vec<&V>)`](Some).
-    #[inline]
+    /// Collects all values of the valued deep children of the child at path `path`,
+    /// returning [`None`](None) if the child does not exist or if the child's
+    /// number of children is 0. Otherwise, the references to values is collected
+    /// as [`Some(Vec<&V>)`](Some). [`with_prefix`](Self::with_prefix) is aliased to `predict`.
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    /// node.insert_value(b"a", "a");
+    /// node.insert_value(b"ab", "ab");
+    /// node.insert_value(b"1234", "1234");
+    ///
+    /// assert!(node.predict(b"z").is_none());
+    /// assert!(node.predict(b"4").is_none());
+    /// assert_eq!(node.predict(b"a").unwrap().len(), 2); // "a" and "ab"
+    /// assert_eq!(node.predict(b"123").unwrap().len(), 1); // "1234"
+    /// assert_eq!(node.predict(b"").unwrap().len(), 3) // "a", "ab", "1234"
+    /// ```
+    #[inline(always)]
     pub fn predict(&self, path: &[K]) -> Option<Vec<&V>> {
         self.get_child(path).and_then(|child| {
             let predicted = child.all_children_values();
@@ -320,6 +339,75 @@ where
 
             Some(predicted)
         })
+    }
+
+    /// Alias to [`Self::predict`](Self::predict)
+    pub fn with_prefix(&self, path: &[K]) -> Option<Vec<&V>> {
+        self.predict(path)
+    }
+
+    /// Reports whether the given fragment of path `frag` suffices to uniquely identify
+    /// a _valued_ child, i.e. the shortest path without ambiguity.
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    /// node.insert_value(b"12345", "12345"); // "1" is not ambiguous
+    /// node.insert_value(b"12222", "12222"); // "12_" is not ambiguous
+    /// node.insert_value(b"01234", "01234"); // "0" is not ambiguous
+    ///
+    /// assert_eq!(node.non_ambiguous(b"1"), false);
+    /// assert_eq!(node.non_ambiguous(b"12"), false);
+    /// assert_eq!(node.non_ambiguous(b"123"), true);
+    /// assert_eq!(node.non_ambiguous(b"122"), true);
+    /// assert_eq!(node.non_ambiguous(b"0"), true);
+    ///
+    /// assert_eq!(node.non_ambiguous(b"abc"), false); // No such node
+    /// ```
+    pub fn non_ambiguous(&self, frag: &[K]) -> bool {
+        self.predict(frag.as_ref())
+            .is_some_and(|targets| targets.len() == 1)
+    }
+
+    /// Returns the shortest prefix length `ret` at which no ambiguity is found.
+    /// `unique_prefix_len` does not checks for valued nodes, and only cares if there's
+    /// a path to some child below `path[..ret]`. The valued returned will be <= `path.len()`.
+    /// TODO: Improve performance
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    ///
+    /// node.insert_value(b"1234xxx", "1234xxx");
+    /// node.insert_value(b"1235xxx", "1235xxx");
+    /// assert_eq!(node.unique_prefix_len(b"1234xxx"), Some(4)); // unique prefix is 123{4,5}
+    /// assert_eq!(node.unique_prefix_len(b"1235xxx"), Some(4)); // unique prefix is 123{4,5}
+    ///
+    /// node.insert_value(b"12xxxxx", "12xxxxx");
+    /// assert_eq!(node.unique_prefix_len(b"12xxxxx"), Some(3)); // unique_prefix is 12{3,x}
+    /// ```
+    pub fn unique_prefix_len(&self, path: &[K]) -> Option<usize> {
+        let mut curr = self;
+
+        for i in (0..path.len()).into_iter() {
+            match curr.all_valued_children().len() {
+                0 => {
+                    return None;
+                }
+                1 => {
+                    return Some(i);
+                }
+                _ => match curr.get_direct_child(&path[i]) {
+                    None => {
+                        return Some(i);
+                    }
+
+                    Some(next) => {
+                        curr = next;
+                    }
+                },
+            }
+        }
+
+        None
     }
 }
 
