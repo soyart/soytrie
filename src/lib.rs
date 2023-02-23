@@ -29,12 +29,14 @@
 //! ```
 //! use soytrie::{Trie, SearchMode};
 //! let mut trie: Trie<u8, &str> = Trie::new();
-//! trie.insert_value(b"a", "a");
-//! trie.insert_value(b"ab", "ab");
-//! trie.insert_value(b"abc", "abc");
-//! trie.insert_value(b"foo", "foo");
-//! trie.insert_value(b"foobar", "foobar");
-//! trie.insert_value(b"foobar2000", "foobar2000");
+//!
+//! // Keys and values are not related.
+//! trie.insert_value(b"a", "This is the 'a' node");
+//! trie.insert_value(b"ab", "This is the 'ab' node");
+//! trie.insert_value(b"abc", "This is the 'abc' node");
+//! trie.insert_value(b"foo", "This is the 'foo' node");
+//! trie.insert_value(b"foobar", "This is the 'foobar' node");
+//! trie.insert_value(b"foobar2000", "This is the 'foobar2000' node");
 //!
 //! assert_eq!(trie.predict(b"f").unwrap().len(), 3); // foo, foobar, foobar2000
 //! assert_eq!(trie.predict(b"ab").unwrap().len(), 2); // ab, abc
@@ -73,6 +75,21 @@
 //!
 //! trie.remove(b"a");  // deletes a
 //! assert_eq!(trie.all_children_values().len(), 0);
+//!
+//! // TrieNode<K, V> implements Clone if K and V is both Clone.
+//! // If a node's value field is `Clone`, then the trie can clone the node as well:
+//! trie.insert_value(b"1", "This will be cloned");
+//! trie.insert_value(b"12", "While this will be removed");
+//!
+//! let cloned_1_node = trie.get_child_clone(b"1").unwrap();
+//!
+//! // Remove last node from the original trie:
+//! trie.remove(b"12");
+//! // And it was gone:
+//! assert_eq!(trie.get_child(b"12"), None);
+//!
+//! // But the "1" node was cloned, and the cloned "12" lives on:
+//! assert!(cloned_1_node.get_child(b"2").is_some());
 //! ```
 
 #![feature(is_some_and)]

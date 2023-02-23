@@ -78,7 +78,7 @@ where
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn get_insert_direct_value<T>(&mut self, key: K, child: T) -> &mut Self
+    pub fn get_or_insert_direct_value<T>(&mut self, key: K, child: T) -> &mut Self
     where
         T: Into<Self>,
     {
@@ -88,7 +88,7 @@ where
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn get_insert_direct_child(&mut self, key: K, child: Self) -> &mut Self {
+    pub fn get_or_insert_direct_child(&mut self, key: K, child: Self) -> &mut Self {
         self.children.entry(key).or_insert(child)
     }
 
@@ -125,7 +125,7 @@ where
 
         let mut curr = self;
         for p in path {
-            let next = curr.get_insert_direct_value(p.clone(), Self::new());
+            let next = curr.get_or_insert_direct_value(p.clone(), Self::new());
             curr = next;
         }
 
@@ -151,7 +151,7 @@ where
     pub fn insert_value(&mut self, path: &[K], value: V) {
         let mut curr = self;
         for p in path {
-            let next = curr.get_insert_direct_value(p.clone(), Self::new());
+            let next = curr.get_or_insert_direct_value(p.clone(), Self::new());
             curr = next;
         }
 
