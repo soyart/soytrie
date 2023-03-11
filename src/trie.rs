@@ -236,6 +236,13 @@ where
     }
 
     /// Removes the child at path `path`, returning the owned child.
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    /// node.insert_value("foobar".as_bytes(), "foobar value");
+    /// node.remove("foo".as_bytes());
+    /// assert!(node.all_valued_children().is_empty());
+    /// ```
     pub fn remove(&mut self, path: &[K]) -> Option<Self> {
         let last_idx = path.len() - 1;
 
