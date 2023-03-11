@@ -231,8 +231,8 @@ where
 
     /// Removes and returns the direct owned child at key `key`.
     #[inline(always)]
-    pub fn remove_direct_child(&mut self, key: K) -> Option<Self> {
-        self.children.remove(&key)
+    pub fn remove_direct_child(&mut self, key: &K) -> Option<Self> {
+        self.children.remove(key)
     }
 
     /// Removes the child at path `path`, returning the owned child.
@@ -697,17 +697,52 @@ mod tests {
         let foobar2000_node = trie.remove(b"foobar2000").expect("foobar2000 node is None");
         assert_eq!(foobar2000_node.all_children_values().len(), 1);
         assert_eq!(foobar2000_node.value, Some("foobar2000"));
+        let assert_check = |trie: &Trie<u8, &str>| {
+            assert_eq!(
+                trie.all_children_values().len(),
+                trie.all_valued_children().len()
+            )
+        };
 
         assert_eq!(trie.all_children_values().len(), 5);
+        assert_check(&trie);
+
         trie.remove(b"abc"); // deletes abc
         assert_eq!(trie.all_children_values().len(), 4);
+        assert_check(&trie);
+
         trie.remove(b"ab"); // deletes ab
         assert_eq!(trie.all_children_values().len(), 3);
+        assert_check(&trie);
+
         trie.remove(b"ab"); // deletes ab
         assert_eq!(trie.all_children_values().len(), 3);
+        assert_check(&trie);
+
         trie.remove(b"f"); // deletes f, fo, foo
         assert_eq!(trie.all_children_values().len(), 1);
+        assert_check(&trie);
+
         trie.remove(b"a"); // deletes a
         assert_eq!(trie.all_children_values().len(), 0);
+        assert_check(&trie);
+    }
+
+    #[test]
+    fn test_unique() {
+        use super::*;
+
+        let mut node = TrieNode::new();
+        node.insert_value(b"1234000", 1);
+        node.insert_value(b"1234500", 2);
+
+        assert_eq!(node.unique_prefix_len(b"1234000").unwrap(), 5); // 1234{0}
+        assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 5); // 1234{5}
+
+        node.remove(b"1234000");
+        assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 0); // Only node
+
+        node.insert_value(b"1234000", 3);
+        assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 5); // 1234{5}
     }
 }
