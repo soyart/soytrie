@@ -26,13 +26,13 @@ where
 /// # Non-`Clone` implementation usage examples
 /// ```
 /// # use soytrie::TrieNode;
-/// let mut root: TrieNode<u8, &str> = TrieNode::new(); // Creates a root node with value None
+/// let mut root = TrieNode::new(); // Creates a root node with value None
 /// let node = TrieNode::from("foo"); // Creates a node with value Some("foo")
 /// root.insert_child(b"foo", node);
 /// root.insert_value(b"foobar", "foobar");
 /// root.insert_child(b"baz", "baz".into()); // TrieNode also implements From<T>
 ///
-/// assert!(root.get_direct_child(b'a').is_none());
+/// assert!(root.get_direct_child(&b'a').is_none());
 ///
 /// {
 ///     let f_node = root.get_child_mut(b"f").unwrap();
@@ -46,7 +46,7 @@ where
 /// assert_eq!(root.all_children_values().len(), 2); // "baz", "fa"
 ///
 /// {
-///     let f_node = root.get_direct_child_mut(b'f').unwrap();
+///     let f_node = root.get_direct_child_mut(&b'f').unwrap();
 ///     assert_eq!(f_node.all_children_values().len(), 1); // "fa"
 ///     f_node.insert_value(b"z", "fz");
 ///     assert_eq!(f_node.all_children_values().len(), 2); // "fa" "fz"
@@ -78,17 +78,21 @@ where
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn get_insert_direct_value<T>(&mut self, key: K, child: T) -> &mut Self
+    pub fn get_or_insert_direct_value<T, Q>(&mut self, key: Q, child: T) -> &mut Self
     where
+        Q: std::ops::Deref<Target = K>,
         T: Into<Self>,
     {
-        self.children.entry(key).or_insert(child.into())
+        self.children.entry(key.clone()).or_insert(child.into())
     }
 
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn get_insert_direct_child(&mut self, key: K, child: Self) -> &mut Self {
+    pub fn get_or_insert_direct_child<Q>(&mut self, key: K, child: Self) -> &mut Self
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
         self.children.entry(key).or_insert(child)
     }
 
@@ -125,7 +129,7 @@ where
 
         let mut curr = self;
         for p in path {
-            let next = curr.get_insert_direct_value(p.clone(), Self::new());
+            let next = curr.get_or_insert_direct_value(p, Self::new());
             curr = next;
         }
 
@@ -151,7 +155,7 @@ where
     pub fn insert_value(&mut self, path: &[K], value: V) {
         let mut curr = self;
         for p in path {
-            let next = curr.get_insert_direct_value(p.clone(), Self::new());
+            let next = curr.get_or_insert_direct_value(p, Self::new());
             curr = next;
         }
 
@@ -160,13 +164,19 @@ where
 
     /// Returns a reference to the direct child at key `key`.
     #[inline(always)]
-    pub fn get_direct_child(&self, key: K) -> Option<&Self> {
+    pub fn get_direct_child<Q>(&self, key: Q) -> Option<&Self>
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
         self.children.get(&key)
     }
 
     /// Returns a mutable reference to the direct child at key `key`.
     #[inline(always)]
-    pub fn get_direct_child_mut(&mut self, key: K) -> Option<&mut Self> {
+    pub fn get_direct_child_mut<Q>(&mut self, key: Q) -> Option<&mut Self>
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
         self.children.get_mut(&key)
     }
 
@@ -177,15 +187,18 @@ where
     /// node.insert_value(b"abc", "abc"); // node at "a" is direct child, but a path node
     /// node.insert_value(b"x", "x"); // node at "x" is both direct child and valued node
     ///
-    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, b'a'), true);
-    /// assert_eq!(node.has_direct_child(SearchMode::Exact, b'a'), false);
-    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, b'b'), false);
-    /// assert_eq!(node.has_direct_child(SearchMode::Exact, b'b'), false);
-    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, b'x'), true);
-    /// assert_eq!(node.has_direct_child(SearchMode::Exact, b'x'), true);
+    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, &b'a'), true);
+    /// assert_eq!(node.has_direct_child(SearchMode::Exact, &b'a'), false);
+    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, &b'b'), false);
+    /// assert_eq!(node.has_direct_child(SearchMode::Exact, &b'b'), false);
+    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, &b'x'), true);
+    /// assert_eq!(node.has_direct_child(SearchMode::Exact, &b'x'), true);
     /// ```
     #[inline(always)]
-    pub fn has_direct_child(&self, mode: SearchMode, key: K) -> bool {
+    pub fn has_direct_child<Q>(&self, mode: SearchMode, key: Q) -> bool
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
         self.children.get(&key).is_some_and(|child| match mode {
             SearchMode::Exact => child.value.is_some(),
             SearchMode::Prefix => true,
@@ -195,8 +208,7 @@ where
     /// Recursively searchs for child at the path, returning reference to the child if it exists.
     pub fn get_child(&self, path: &[K]) -> Option<&Self> {
         path.is_empty().then_some(self).or_else(|| {
-            self.children
-                .get(&path[0])
+            self.get_direct_child(&path[0])
                 .and_then(|child| child.get_child(&path[1..]))
         })
     }
@@ -226,11 +238,21 @@ where
 
     /// Removes and returns the direct owned child at key `key`.
     #[inline(always)]
-    pub fn remove_direct_child(&mut self, key: K) -> Option<Self> {
+    pub fn remove_direct_child<Q>(&mut self, key: Q) -> Option<Self>
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
         self.children.remove(&key)
     }
 
     /// Removes the child at path `path`, returning the owned child.
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    /// node.insert_value("foobar".as_bytes(), "foobar value");
+    /// node.remove("foo".as_bytes());
+    /// assert!(node.all_valued_children().is_empty());
+    /// ```
     pub fn remove(&mut self, path: &[K]) -> Option<Self> {
         let last_idx = path.len() - 1;
 
@@ -306,10 +328,24 @@ where
             .collect()
     }
 
-    /// Collects all values of the children of the child at path `path`, returning [`None`](None)
-    /// if the child does not exist or if the child's number of children is 0. Otherwise, the
-    /// references to values is collected as [`Some(Vec<&V>)`](Some).
-    #[inline]
+    /// Collects all values of the valued deep children of the child at path `path`,
+    /// returning [`None`](None) if the child does not exist or if the child's
+    /// number of children is 0. Otherwise, the references to values is collected
+    /// as [`Some(Vec<&V>)`](Some). [`with_prefix`](Self::with_prefix) is aliased to `predict`.
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    /// node.insert_value(b"a", "a");
+    /// node.insert_value(b"ab", "ab");
+    /// node.insert_value(b"1234", "1234");
+    ///
+    /// assert!(node.predict(b"z").is_none());
+    /// assert!(node.predict(b"4").is_none());
+    /// assert_eq!(node.predict(b"a").unwrap().len(), 2); // "a" and "ab"
+    /// assert_eq!(node.predict(b"123").unwrap().len(), 1); // "1234"
+    /// assert_eq!(node.predict(b"").unwrap().len(), 3) // "a", "ab", "1234"
+    /// ```
+    #[inline(always)]
     pub fn predict(&self, path: &[K]) -> Option<Vec<&V>> {
         self.get_child(path).and_then(|child| {
             let predicted = child.all_children_values();
@@ -320,6 +356,75 @@ where
 
             Some(predicted)
         })
+    }
+
+    /// Alias to [`Self::predict`](Self::predict)
+    pub fn with_prefix(&self, path: &[K]) -> Option<Vec<&V>> {
+        self.predict(path)
+    }
+
+    /// Reports whether the given fragment of path `frag` suffices to uniquely identify
+    /// a _valued_ child, i.e. the shortest path without ambiguity.
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    /// node.insert_value(b"12345", "12345"); // "1" is not ambiguous
+    /// node.insert_value(b"12222", "12222"); // "12_" is not ambiguous
+    /// node.insert_value(b"01234", "01234"); // "0" is not ambiguous
+    ///
+    /// assert_eq!(node.non_ambiguous(b"1"), false);
+    /// assert_eq!(node.non_ambiguous(b"12"), false);
+    /// assert_eq!(node.non_ambiguous(b"123"), true);
+    /// assert_eq!(node.non_ambiguous(b"122"), true);
+    /// assert_eq!(node.non_ambiguous(b"0"), true);
+    ///
+    /// assert_eq!(node.non_ambiguous(b"abc"), false); // No such node
+    /// ```
+    pub fn non_ambiguous(&self, frag: &[K]) -> bool {
+        self.predict(frag.as_ref())
+            .is_some_and(|targets| targets.len() == 1)
+    }
+
+    /// Returns the shortest prefix length `ret` at which no ambiguity is found.
+    /// `unique_prefix_len` does not checks for valued nodes, and only cares if there's
+    /// a path to some child below `path[..ret]`. The valued returned will be <= `path.len()`.
+    /// TODO: Improve performance
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    ///
+    /// node.insert_value(b"1234xxx", "1234xxx");
+    /// node.insert_value(b"1235xxx", "1235xxx");
+    /// assert_eq!(node.unique_prefix_len(b"1234xxx"), Some(4)); // unique prefix is 123{4,5}
+    /// assert_eq!(node.unique_prefix_len(b"1235xxx"), Some(4)); // unique prefix is 123{4,5}
+    ///
+    /// node.insert_value(b"12xxxxx", "12xxxxx");
+    /// assert_eq!(node.unique_prefix_len(b"12xxxxx"), Some(3)); // unique_prefix is 12{3,x}
+    /// ```
+    pub fn unique_prefix_len(&self, path: &[K]) -> Option<usize> {
+        let mut curr = self;
+
+        for i in (0..path.len()).into_iter() {
+            match curr.all_valued_children().len() {
+                0 => {
+                    return None;
+                }
+                1 => {
+                    return Some(i);
+                }
+                _ => match curr.get_direct_child(&path[i]) {
+                    None => {
+                        return Some(i);
+                    }
+
+                    Some(next) => {
+                        curr = next;
+                    }
+                },
+            }
+        }
+
+        None
     }
 }
 
@@ -602,18 +707,53 @@ mod tests {
         let foobar2000_node = trie.remove(b"foobar2000").expect("foobar2000 node is None");
         assert_eq!(foobar2000_node.all_children_values().len(), 1);
         assert_eq!(foobar2000_node.value, Some("foobar2000"));
+        let assert_check = |trie: &Trie<u8, &str>| {
+            assert_eq!(
+                trie.all_children_values().len(),
+                trie.all_valued_children().len()
+            )
+        };
 
         assert_eq!(trie.all_children_values().len(), 5);
+        assert_check(&trie);
+
         trie.remove(b"abc"); // deletes abc
         assert_eq!(trie.all_children_values().len(), 4);
+        assert_check(&trie);
+
         trie.remove(b"ab"); // deletes ab
         assert_eq!(trie.all_children_values().len(), 3);
+        assert_check(&trie);
+
         trie.remove(b"ab"); // deletes ab
         assert_eq!(trie.all_children_values().len(), 3);
+        assert_check(&trie);
+
         trie.remove(b"f"); // deletes f, fo, foo
         assert_eq!(trie.all_children_values().len(), 1);
+        assert_check(&trie);
+
         trie.remove(b"a"); // deletes a
         assert_eq!(trie.all_children_values().len(), 0);
+        assert_check(&trie);
+    }
+
+    #[test]
+    fn test_unique() {
+        use super::*;
+
+        let mut node = TrieNode::new();
+        node.insert_value(b"1234000", 1);
+        node.insert_value(b"1234500", 2);
+
+        assert_eq!(node.unique_prefix_len(b"1234000").unwrap(), 5); // 1234{0}
+        assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 5); // 1234{5}
+
+        node.remove(b"1234000");
+        assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 0); // Only node
+
+        node.insert_value(b"1234000", 3);
+        assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 5); // 1234{5}
     }
 }
 
