@@ -78,17 +78,21 @@ where
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn get_or_insert_direct_value<T>(&mut self, key: K, child: T) -> &mut Self
+    pub fn get_or_insert_direct_value<T, Q>(&mut self, key: Q, child: T) -> &mut Self
     where
+        Q: std::ops::Deref<Target = K>,
         T: Into<Self>,
     {
-        self.children.entry(key).or_insert(child.into())
+        self.children.entry(key.clone()).or_insert(child.into())
     }
 
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn get_or_insert_direct_child(&mut self, key: K, child: Self) -> &mut Self {
+    pub fn get_or_insert_direct_child<Q>(&mut self, key: K, child: Self) -> &mut Self
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
         self.children.entry(key).or_insert(child)
     }
 
@@ -125,7 +129,7 @@ where
 
         let mut curr = self;
         for p in path {
-            let next = curr.get_or_insert_direct_value(p.clone(), Self::new());
+            let next = curr.get_or_insert_direct_value(p, Self::new());
             curr = next;
         }
 
@@ -151,7 +155,7 @@ where
     pub fn insert_value(&mut self, path: &[K], value: V) {
         let mut curr = self;
         for p in path {
-            let next = curr.get_or_insert_direct_value(p.clone(), Self::new());
+            let next = curr.get_or_insert_direct_value(p, Self::new());
             curr = next;
         }
 
@@ -183,15 +187,18 @@ where
     /// node.insert_value(b"abc", "abc"); // node at "a" is direct child, but a path node
     /// node.insert_value(b"x", "x"); // node at "x" is both direct child and valued node
     ///
-    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, b'a'), true);
-    /// assert_eq!(node.has_direct_child(SearchMode::Exact, b'a'), false);
-    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, b'b'), false);
-    /// assert_eq!(node.has_direct_child(SearchMode::Exact, b'b'), false);
-    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, b'x'), true);
-    /// assert_eq!(node.has_direct_child(SearchMode::Exact, b'x'), true);
+    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, &b'a'), true);
+    /// assert_eq!(node.has_direct_child(SearchMode::Exact, &b'a'), false);
+    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, &b'b'), false);
+    /// assert_eq!(node.has_direct_child(SearchMode::Exact, &b'b'), false);
+    /// assert_eq!(node.has_direct_child(SearchMode::Prefix, &b'x'), true);
+    /// assert_eq!(node.has_direct_child(SearchMode::Exact, &b'x'), true);
     /// ```
     #[inline(always)]
-    pub fn has_direct_child(&self, mode: SearchMode, key: K) -> bool {
+    pub fn has_direct_child<Q>(&self, mode: SearchMode, key: Q) -> bool
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
         self.children.get(&key).is_some_and(|child| match mode {
             SearchMode::Exact => child.value.is_some(),
             SearchMode::Prefix => true,
@@ -231,8 +238,11 @@ where
 
     /// Removes and returns the direct owned child at key `key`.
     #[inline(always)]
-    pub fn remove_direct_child(&mut self, key: &K) -> Option<Self> {
-        self.children.remove(key)
+    pub fn remove_direct_child<Q>(&mut self, key: Q) -> Option<Self>
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
+        self.children.remove(&key)
     }
 
     /// Removes the child at path `path`, returning the owned child.
