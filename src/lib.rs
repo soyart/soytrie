@@ -96,4 +96,8 @@
 #![feature(map_try_insert)]
 
 mod trie;
+mod trie_freq;
+mod util;
+
 pub use trie::*;
+pub use trie_freq::*;

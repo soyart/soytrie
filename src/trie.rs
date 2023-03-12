@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use super::util;
+
 /// Defines how the trie node treats each match.
 #[derive(PartialEq)]
 pub enum SearchMode {
@@ -19,8 +21,7 @@ where
     K: Clone + Eq + std::hash::Hash,
 {
     pub value: Option<V>,
-
-    children: HashMap<K, TrieNode<K, V>>,
+    pub(super) children: HashMap<K, TrieNode<K, V>>,
 }
 
 /// # Non-`Clone` implementation usage examples
@@ -78,22 +79,22 @@ where
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn get_or_insert_direct_value<T, Q>(&mut self, key: Q, value: T) -> &mut Self
+    pub fn get_or_insert_direct_child<Q>(&mut self, key: Q, child: Self) -> &mut Self
     where
         Q: std::ops::Deref<Target = K>,
-        T: Into<Self>,
     {
-        self.children.entry(key.clone()).or_insert(value.into())
+        util::insert_direct_value(&mut self.children, key.clone(), child)
     }
 
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn get_or_insert_direct_child<Q>(&mut self, key: K, child: Self) -> &mut Self
+    pub fn get_or_insert_direct_value<T, Q>(&mut self, key: Q, value: T) -> &mut Self
     where
         Q: std::ops::Deref<Target = K>,
+        T: Into<Self>,
     {
-        self.children.entry(key).or_insert(child)
+        self.get_or_insert_direct_child(key, value.into())
     }
 
     /// Inserts `child` at path `path`. If the child already exists, it is assigned a completely new value
