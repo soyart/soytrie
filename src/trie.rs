@@ -12,12 +12,15 @@ pub enum SearchMode {
 /// A trie node backed by [HashMap](HashMap).
 /// In this trie implementation, a node can be either a _valued node_, or a _path node_.
 /// A valued node has [`Some(_)`](Some) in the value field, while path node has [`None`](None).
+/// By default, trie nodes don't store frequency information, although users can opt-in for the counting.
+/// by passing `true` to [`new(bool)`](Self::new)
 /// Fields `value` and `children` are uncorrelated and can be used arbitarily.
 /// If using multiple tries, consider using [`Trie<K, V>`](Trie), which has a path node as root.
 pub struct TrieNode<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
 {
+    pub freq: Option<usize>,
     pub value: Option<V>,
 
     children: HashMap<K, TrieNode<K, V>>,
@@ -26,7 +29,7 @@ where
 /// # Non-`Clone` implementation usage examples
 /// ```
 /// # use soytrie::TrieNode;
-/// let mut root = TrieNode::new(); // Creates a root node with value None
+/// let mut root = TrieNode::new(false); // Creates a root node with value None
 /// let node = TrieNode::from("foo"); // Creates a node with value Some("foo")
 /// root.insert_child(b"foo", node);
 /// root.insert_value(b"foobar", "foobar");
@@ -62,17 +65,32 @@ where
     /// If you want to create a node from a value, use [`from`](From) instead:
     /// ```
     /// # use soytrie::TrieNode;
-    /// let mut root = TrieNode::new();
+    /// let mut root = TrieNode::new(false);
     /// let node = TrieNode::from("foo"); // Creates a node with value Some("foo")
     ///
     /// root.insert_child(b"foo", node);
     /// ```
     #[inline]
-    pub fn new() -> Self {
+    pub fn new(count_freq: bool) -> Self {
         Self {
+            freq: if count_freq { Some(0) } else { None },
             children: HashMap::new(),
             value: None,
         }
+    }
+
+    /// Returns the mutable reference of the existing child at key `key`.
+    /// If it does not exist, inserts `child` to `self.children` and returning that new child.
+    #[inline]
+    pub fn get_or_insert_direct_child<Q>(&mut self, key: Q, child: Self) -> &mut Self
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
+        if let Some(freq) = self.freq {
+            self.freq = Some(freq + 1);
+        };
+
+        self.children.entry(key.clone()).or_insert(child)
     }
 
     /// Returns the mutable reference of the existing child at key `key`.
@@ -83,17 +101,7 @@ where
         Q: std::ops::Deref<Target = K>,
         T: Into<Self>,
     {
-        self.children.entry(key.clone()).or_insert(value.into())
-    }
-
-    /// Returns the mutable reference of the existing child at key `key`.
-    /// If it does not exist, inserts `child` to `self.children` and returning that new child.
-    #[inline]
-    pub fn get_or_insert_direct_child<Q>(&mut self, key: K, child: Self) -> &mut Self
-    where
-        Q: std::ops::Deref<Target = K>,
-    {
-        self.children.entry(key).or_insert(child)
+        self.get_or_insert_direct_child(key, value.into())
     }
 
     /// Inserts `child` at path `path`. If the child already exists, it is assigned a completely new value
@@ -103,7 +111,7 @@ where
     /// Note: The implementation does not use recursion, so deep insertion will not cost long call stacks.
     /// ```
     /// # use soytrie::TrieNode;
-    /// let mut node = TrieNode::new();
+    /// let mut node = TrieNode::new(false);
     /// node.insert_child(b"a", "a".into()); // This adds valued node at "a"
     /// node.insert_child(b"ab", "ab".into()); // This adds valued node at "b"
     /// node.insert_child(b"abcde", "abcde".into()); // This adds valued node at "b"
@@ -129,7 +137,7 @@ where
 
         let mut curr = self;
         for p in path {
-            let next = curr.get_or_insert_direct_value(p, Self::new());
+            let next = curr.get_or_insert_direct_value(p, Self::new(curr.freq.is_some()));
             curr = next;
         }
 
@@ -138,7 +146,7 @@ where
 
     /// ```
     /// # use soytrie::TrieNode;
-    /// let mut node = TrieNode::new();
+    /// let mut node = TrieNode::new(false);
     ///
     /// node.insert_value(b"a", "a"); // This adds valued node at "a"
     /// node.insert_value(b"ab", "ab"); // This adds valued node at "b"
@@ -153,9 +161,11 @@ where
     /// ```
     #[inline]
     pub fn insert_value(&mut self, path: &[K], value: V) {
+        let count_freq = self.freq.is_some();
+
         let mut curr = self;
         for p in path {
-            let next = curr.get_or_insert_direct_value(p, Self::new());
+            let next = curr.get_or_insert_direct_value(p, Self::new(count_freq));
             curr = next;
         }
 
@@ -183,7 +193,7 @@ where
     /// Returns a boolean indicating success.
     /// ```
     /// # use soytrie::{TrieNode, SearchMode};
-    /// let mut node = TrieNode::new();
+    /// let mut node = TrieNode::new(false);
     /// node.insert_value(b"abc", "abc"); // node at "a" is direct child, but a path node
     /// node.insert_value(b"x", "x"); // node at "x" is both direct child and valued node
     ///
@@ -229,7 +239,7 @@ where
     /// and the call always returns `Some(node)` if `path` is empty.
     /// ```
     /// # use soytrie::TrieNode;
-    /// let mut node: TrieNode<_, u8> = TrieNode::new();
+    /// let mut node: TrieNode<_, u8> = TrieNode::new(false);
     /// assert!(node.get_or_update_child(b"foo", 1).is_none());
     /// assert!(node.get_or_update_child(b"fool", 6).is_none());
     /// assert!(node.get_or_update_child(b"foobar", 2).is_none());
@@ -237,7 +247,7 @@ where
     /// assert_eq!(node.get_or_update_child(b"foobar", 4).expect("None child").value, Some(3));
     /// assert_eq!(node.get_or_update_child(b"foobar", 5).expect("None child").value, Some(4));
     ///
-    /// let mut new_node: TrieNode<_, u8> = TrieNode::new();
+    /// let mut new_node: TrieNode<_, u8> = TrieNode::new(false);
     /// // Empty path always returns some child
     /// assert!(new_node.get_or_update_child(b"", 1).expect("None child").value.is_none());
     /// assert!(new_node.get_or_update_child(b"a", 2).is_none());
@@ -255,20 +265,24 @@ where
     /// ```
     pub fn get_or_update_child(&mut self, path: &[K], value: V) -> Option<Self> {
         // TODO: preserve children
+        let count_freq = self.freq.is_some();
+
         if path.is_empty() {
-            let mut tmp: Self = value.into();
+            let mut tmp: Self = (value, count_freq).into();
             std::mem::swap(self, &mut tmp);
 
             return Some(tmp);
         }
 
         if path.len() == 1 {
-            return self.children.insert(path[0].clone(), value.into());
+            return self
+                .children
+                .insert(path[0].clone(), (value, count_freq).into());
         }
 
         self.children
             .entry(path[0].clone())
-            .or_insert(Self::new())
+            .or_insert(Self::new(self.freq.is_some()))
             .get_or_update_child(&path[1..], value)
     }
 
@@ -289,7 +303,7 @@ where
     /// Calls [swap_node_value](Self::swap_node_value) on child at `path`.
     /// ```
     /// # use soytrie::TrieNode;
-    /// let mut node = TrieNode::new();
+    /// let mut node = TrieNode::new(false);
     /// node.insert_value(b"foo", 1);
     /// assert!(node.swap_child_value(b"f", 2).is_none());
     /// assert_eq!(node.swap_child_value(b"f", 3), Some(2));
@@ -313,19 +327,26 @@ where
         }
     }
 
+    fn de_freq(&mut self) {
+        if let Some(freq) = self.freq {
+            self.freq = Some(freq - 1);
+        }
+    }
+
     /// Removes and returns the direct owned child at key `key`.
     #[inline(always)]
     pub fn remove_direct_child<Q>(&mut self, key: Q) -> Option<Self>
     where
         Q: std::ops::Deref<Target = K>,
     {
+        self.de_freq();
         self.children.remove(&key)
     }
 
     /// Removes the child at path `path`, returning the owned child.
     /// ```
     /// # use soytrie::TrieNode;
-    /// let mut node = TrieNode::new();
+    /// let mut node = TrieNode::new(false);
     /// node.insert_value("foobar".as_bytes(), "foobar value");
     /// node.remove("foo".as_bytes());
     /// assert!(node.all_valued_children().is_empty());
@@ -333,8 +354,15 @@ where
     pub fn remove(&mut self, path: &[K]) -> Option<Self> {
         let last_idx = path.len() - 1;
 
-        self.get_child_mut(&path[..last_idx])
-            .and_then(|child| child.children.remove(&path[last_idx]))
+        let removed = self
+            .get_child_mut(&path[..last_idx])
+            .and_then(|child| child.remove_direct_child(&path[last_idx]));
+
+        if removed.is_some() {
+            self.de_freq();
+        }
+
+        removed
     }
 
     /// Recursively collects all extant children of `node`.
@@ -352,7 +380,7 @@ where
     /// Returns all children of the node.
     /// ```
     /// # use soytrie::TrieNode;
-    /// let mut node = TrieNode::new();
+    /// let mut node = TrieNode::new(false);
     ///
     /// node.insert_value(b"a", "a"); // Adds valued node at "a"
     /// node.insert_value(b"ab", "ab"); // Adds valued node at "b"
@@ -371,7 +399,7 @@ where
     /// Returns all valued child nodes of the node.
     /// ```
     /// # use soytrie::TrieNode;
-    /// let mut node = TrieNode::new();
+    /// let mut node = TrieNode::new(false);
     ///
     /// node.insert_value(b"a", "a"); // This adds valued node at "a"
     /// node.insert_value(b"ab", "ab"); // This adds valued node at "b"
@@ -390,7 +418,7 @@ where
     /// Returns all values of valued children as a vector of references to the children.
     /// ```
     /// use soytrie::TrieNode;
-    /// let mut node = TrieNode::new();
+    /// let mut node = TrieNode::new(false);
     ///
     /// node.insert_value(b"abc", "abc"); // This adds path nodes at "a" and "b", and valued node at "c"
     /// node.insert_value(b"xyz", "xyz"); // Adds path nodes at "x", "y", and valued node at "z"
@@ -411,7 +439,7 @@ where
     /// as [`Some(Vec<&V>)`](Some). [`with_prefix`](Self::with_prefix) is aliased to `predict`.
     /// ```
     /// # use soytrie::TrieNode;
-    /// let mut node = TrieNode::new();
+    /// let mut node = TrieNode::new(false);
     /// node.insert_value(b"a", "a");
     /// node.insert_value(b"ab", "ab");
     /// node.insert_value(b"1234", "1234");
@@ -444,7 +472,7 @@ where
     /// a _valued_ child, i.e. the shortest path without ambiguity.
     /// ```
     /// # use soytrie::TrieNode;
-    /// let mut node = TrieNode::new();
+    /// let mut node = TrieNode::new(false);
     /// node.insert_value(b"12345", "12345"); // "1" is not ambiguous
     /// node.insert_value(b"12222", "12222"); // "12_" is not ambiguous
     /// node.insert_value(b"01234", "01234"); // "0" is not ambiguous
@@ -468,7 +496,7 @@ where
     /// TODO: Improve performance
     /// ```
     /// # use soytrie::TrieNode;
-    /// let mut node = TrieNode::new();
+    /// let mut node = TrieNode::new(false);
     ///
     /// node.insert_value(b"1234xxx", "1234xxx");
     /// node.insert_value(b"1235xxx", "1235xxx");
@@ -481,23 +509,49 @@ where
     pub fn unique_prefix_len(&self, path: &[K]) -> Option<usize> {
         let mut curr = self;
 
-        for i in (0..path.len()).into_iter() {
-            match curr.all_valued_children().len() {
-                0 => {
-                    return None;
-                }
-                1 => {
-                    return Some(i);
-                }
-                _ => match curr.get_direct_child(&path[i]) {
-                    None => {
-                        return Some(i);
-                    }
+        match curr.freq {
+            Some(_) => {
+                for i in (0..path.len()).into_iter() {
+                    match curr.freq.expect("child does not count freq") {
+                        0 => {
+                            return None;
+                        }
+                        1 => {
+                            return Some(i);
+                        }
+                        _ => match curr.get_direct_child(&path[i]) {
+                            None => {
+                                return Some(i);
+                            }
 
-                    Some(next) => {
-                        curr = next;
+                            Some(next) => {
+                                curr = next;
+                            }
+                        },
                     }
-                },
+                }
+            }
+
+            None => {
+                for i in (0..path.len()).into_iter() {
+                    match curr.all_valued_children().len() {
+                        0 => {
+                            return None;
+                        }
+                        1 => {
+                            return Some(i);
+                        }
+                        _ => match curr.get_direct_child(&path[i]) {
+                            None => {
+                                return Some(i);
+                            }
+
+                            Some(next) => {
+                                curr = next;
+                            }
+                        },
+                    }
+                }
             }
         }
 
@@ -510,7 +564,7 @@ where
 /// ```
 /// use soytrie::TrieNode;
 ///
-/// let mut node = TrieNode::<u8, u8>::new();
+/// let mut node = TrieNode::<u8, u8>::new(false);
 /// node.insert_child(b"1", b'1'.into());
 /// let mut cloned = node.get_child_clone(b"1").expect("no such child");
 /// cloned.insert_child(b"2", b'2'.into());
@@ -552,6 +606,7 @@ where
 
 /// Creates a valued [node](TrieNode) using [`Some(_)`](Some)
 /// without children. Only the [value field](TrieNode::value) is populated.
+/// The node created will not count frequency. To create a freq node, use From<(V, bool)> instead.
 /// ```
 /// # use soytrie::TrieNode;
 /// # use std::collections::HashMap;
@@ -564,26 +619,56 @@ where
 {
     fn from(value: V) -> Self {
         Self {
+            freq: None,
             value: Some(value),
             children: HashMap::new(),
         }
     }
 }
 
+impl<K, V> From<(V, bool)> for TrieNode<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+{
+    fn from(constructor: (V, bool)) -> Self {
+        Self {
+            freq: if constructor.1 { Some(0) } else { None },
+            value: Some(constructor.0),
+            children: HashMap::new(),
+        }
+    }
+}
+
 /// Creates a node from [`Option<V>`](Option) without wrapping it in another [`Some(Some(_))`](Some).
+/// The node created will not count frequency. To create a freq node, use From<(Option<V>, bool)> instead.
 ///```
 /// # use soytrie::TrieNode;
 /// # use std::collections::HashMap;
 /// let node: TrieNode<u8, _> = "node".to_string().into();
 /// assert!(node == TrieNode::from(Some("node".to_string())));
 /// ```
+
 impl<K, V> From<Option<V>> for TrieNode<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
 {
     fn from(opt: Option<V>) -> Self {
         Self {
+            freq: None,
             value: opt,
+            children: HashMap::new(),
+        }
+    }
+}
+
+impl<K, V> From<(Option<V>, bool)> for TrieNode<K, V>
+where
+    K: Clone + Eq + std::hash::Hash,
+{
+    fn from(constructor: (Option<V>, bool)) -> Self {
+        Self {
+            freq: if constructor.1 { Some(0) } else { None },
+            value: constructor.0,
             children: HashMap::new(),
         }
     }
@@ -636,6 +721,7 @@ where
 {
     fn clone(&self) -> Self {
         Self {
+            freq: self.freq,
             value: self.value.clone(),
             children: self.children.clone(),
         }
@@ -657,7 +743,7 @@ where
     #[inline]
     pub fn new() -> Self {
         Self {
-            root: TrieNode::new(),
+            root: TrieNode::new(false),
         }
     }
 }
@@ -819,7 +905,7 @@ mod tests {
     fn test_unique() {
         use super::*;
 
-        let mut node = TrieNode::new();
+        let mut node = TrieNode::new(true);
         node.insert_value(b"1234000", 1);
         node.insert_value(b"1234500", 2);
 
