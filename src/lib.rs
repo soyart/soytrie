@@ -93,6 +93,7 @@
 //! ```
 
 #![feature(is_some_and)]
+#![feature(map_try_insert)]
 
 mod trie;
 pub use trie::*;

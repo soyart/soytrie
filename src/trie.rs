@@ -78,12 +78,12 @@ where
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
-    pub fn get_or_insert_direct_value<T, Q>(&mut self, key: Q, child: T) -> &mut Self
+    pub fn get_or_insert_direct_value<T, Q>(&mut self, key: Q, value: T) -> &mut Self
     where
         Q: std::ops::Deref<Target = K>,
         T: Into<Self>,
     {
-        self.children.entry(key.clone()).or_insert(child.into())
+        self.children.entry(key.clone()).or_insert(value.into())
     }
 
     /// Returns the mutable reference of the existing child at key `key`.
@@ -222,6 +222,83 @@ where
         self.children
             .get_mut(&path[0])
             .and_then(|child| child.get_child_mut(&path[1..]))
+    }
+
+    /// Like `insert_child`, but returns Some(TrieNode<K, V>) if there's a node at `path`.
+    /// If `path` is empty, the value is used to construct a new Self, and that Self is swapped with self,
+    /// and the call always returns `Some(node)` if `path` is empty.
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node: TrieNode<_, u8> = TrieNode::new();
+    /// assert!(node.get_or_update_child(b"foo", 1).is_none());
+    /// assert!(node.get_or_update_child(b"fool", 6).is_none());
+    /// assert!(node.get_or_update_child(b"foobar", 2).is_none());
+    /// assert!(node.get_or_update_child(b"foobar", 3).is_some());
+    /// assert_eq!(node.get_or_update_child(b"foobar", 4).expect("None child").value, Some(3));
+    /// assert_eq!(node.get_or_update_child(b"foobar", 5).expect("None child").value, Some(4));
+    ///
+    /// let mut new_node: TrieNode<_, u8> = TrieNode::new();
+    /// // Empty path always returns some child
+    /// assert!(new_node.get_or_update_child(b"", 1).expect("None child").value.is_none());
+    /// assert!(new_node.get_or_update_child(b"a", 2).is_none());
+    /// assert!(new_node.get_or_update_child(b"ab", 3).is_none());
+    /// assert!(new_node.get_or_update_child(b"abc", 4).is_none());
+    /// # assert_eq!(new_node.all_valued_children().len(), 4);
+    /// # let node_a = new_node.get_child(b"a").expect("None node at path 'a'");
+    /// # assert_eq!(new_node.all_valued_children().len(), 4);
+    /// # assert!(node_a.get_child(b"b").is_some());
+    /// let mut node_a = new_node.get_child_mut(b"a").expect("None node 'a'");
+    /// let a_prefixed_len = node_a.all_valued_children().len();
+    /// // get_or_update_child WILL DROP node_b children
+    /// assert_eq!(node_a.get_or_update_child(b"b", 5).expect("None child").value, Some(3));
+    /// assert_ne!(node_a.all_valued_children().len(), a_prefixed_len);
+    /// ```
+    pub fn get_or_update_child(&mut self, path: &[K], value: V) -> Option<Self> {
+        // TODO: preserve children
+        if path.is_empty() {
+            let mut tmp: Self = value.into();
+            std::mem::swap(self, &mut tmp);
+
+            return Some(tmp);
+        }
+
+        if path.len() == 1 {
+            return self.children.insert(path[0].clone(), value.into());
+        }
+
+        self.children
+            .entry(path[0].clone())
+            .or_insert(Self::new())
+            .get_or_update_child(&path[1..], value)
+    }
+
+    #[inline(always)]
+    pub fn swap(&mut self, node: &mut Self) {
+        std::mem::swap(self, node)
+    }
+
+    /// Swaps self.value with `Some(value)`
+    #[inline(always)]
+    pub fn swap_node_value(&mut self, value: V) -> Option<V> {
+        let mut tmp = Some(value);
+        std::mem::swap(&mut self.value, &mut tmp);
+
+        tmp
+    }
+
+    /// Calls [swap_node_value](Self::swap_node_value) on child at `path`.
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new();
+    /// node.insert_value(b"foo", 1);
+    /// assert!(node.swap_child_value(b"f", 2).is_none());
+    /// assert_eq!(node.swap_child_value(b"f", 3), Some(2));
+    /// assert_eq!(node.swap_child_value(b"foo", 4), Some(1));
+    /// ```
+    #[inline(always)]
+    pub fn swap_child_value(&mut self, path: &[K], value: V) -> Option<V> {
+        self.get_child_mut(path)
+            .and_then(|child| child.swap_node_value(value))
     }
 
     /// Searchs for child at the path, returning boolean value indicating success.
