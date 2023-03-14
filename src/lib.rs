@@ -28,7 +28,7 @@
 //!
 //! ```
 //! use soytrie::{Trie, SearchMode};
-//! let mut trie: Trie<u8, &str> = Trie::new();
+//! let mut trie: Trie<u8, &str> = Trie::new(false);
 //!
 //! // Keys and values are not related.
 //! trie.insert_value(b"a", "This is the 'a' node");

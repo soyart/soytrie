@@ -12,17 +12,18 @@ pub enum SearchMode {
 /// A trie node backed by [HashMap](HashMap).
 /// In this trie implementation, a node can be either a _valued node_, or a _path node_.
 /// A valued node has [`Some(_)`](Some) in the value field, while path node has [`None`](None).
-/// By default, trie nodes don't store frequency information, although users can opt-in for the counting.
-/// by passing `true` to [`new(bool)`](Self::new)
 /// Fields `value` and `children` are uncorrelated and can be used arbitarily.
 /// If using multiple tries, consider using [`Trie<K, V>`](Trie), which has a path node as root.
+/// `TrieNode` can be initialized with either `Some` frequency tracking or `None` by passing `true`
+/// or false to [`TrieNode::new(bool)`](Self::new). Frequency tracking allows the trie node to quickly
+/// returns the number of its children without actually having to traverse down the trie.
 pub struct TrieNode<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
 {
-    pub freq: Option<usize>,
     pub value: Option<V>,
 
+    freq: Option<usize>,
     children: HashMap<K, TrieNode<K, V>>,
 }
 
@@ -79,6 +80,30 @@ where
         }
     }
 
+    // Increments self.freq by 1
+    #[inline(always)]
+    fn inc_freq(&mut self) {
+        if let Some(freq) = self.freq {
+            self.freq = Some(freq + 1);
+        }
+    }
+
+    // Decrements self.freq by 1. Panics if usize overflows.
+    #[inline(always)]
+    fn de_freq(&mut self) {
+        if let Some(freq) = self.freq {
+            self.freq = Some(freq - 1);
+        }
+    }
+
+    /// Returns `Some(Self)` if there's already child at key, otherwise inserts `child` and returns `None`
+    pub fn insert_or_get_direct_child<Q>(&mut self, key: Q, child: Self) -> Option<Self>
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
+        self.children.insert(key.clone(), child)
+    }
+
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
     #[inline]
@@ -86,10 +111,7 @@ where
     where
         Q: std::ops::Deref<Target = K>,
     {
-        if let Some(freq) = self.freq {
-            self.freq = Some(freq + 1);
-        };
-
+        self.inc_freq();
         self.children.entry(key.clone()).or_insert(child)
     }
 
@@ -209,7 +231,7 @@ where
     where
         Q: std::ops::Deref<Target = K>,
     {
-        self.children.get(&key).is_some_and(|child| match mode {
+        self.get_direct_child(key).is_some_and(|child| match mode {
             SearchMode::Exact => child.value.is_some(),
             SearchMode::Prefix => true,
         })
@@ -229,8 +251,7 @@ where
             return Some(self);
         }
 
-        self.children
-            .get_mut(&path[0])
+        self.get_direct_child_mut(&path[0])
             .and_then(|child| child.get_child_mut(&path[1..]))
     }
 
@@ -275,14 +296,10 @@ where
         }
 
         if path.len() == 1 {
-            return self
-                .children
-                .insert(path[0].clone(), (value, count_freq).into());
+            return self.insert_or_get_direct_child(&path[0], (value, count_freq).into());
         }
 
-        self.children
-            .entry(path[0].clone())
-            .or_insert(Self::new(self.freq.is_some()))
+        self.get_or_insert_direct_child(&path[0], Self::new(self.freq.is_some()))
             .get_or_update_child(&path[1..], value)
     }
 
@@ -327,19 +344,12 @@ where
         }
     }
 
-    fn de_freq(&mut self) {
-        if let Some(freq) = self.freq {
-            self.freq = Some(freq - 1);
-        }
-    }
-
     /// Removes and returns the direct owned child at key `key`.
     #[inline(always)]
     pub fn remove_direct_child<Q>(&mut self, key: Q) -> Option<Self>
     where
         Q: std::ops::Deref<Target = K>,
     {
-        self.de_freq();
         self.children.remove(&key)
     }
 
@@ -468,6 +478,12 @@ where
         self.predict(path)
     }
 
+    /// Returns the number of valued children
+    #[inline(always)]
+    pub fn num_children(&self) -> usize {
+        self.freq.unwrap_or(self.all_valued_children().len())
+    }
+
     /// Reports whether the given fragment of path `frag` suffices to uniquely identify
     /// a _valued_ child, i.e. the shortest path without ambiguity.
     /// ```
@@ -486,8 +502,8 @@ where
     /// assert_eq!(node.non_ambiguous(b"abc"), false); // No such node
     /// ```
     pub fn non_ambiguous(&self, frag: &[K]) -> bool {
-        self.predict(frag.as_ref())
-            .is_some_and(|targets| targets.len() == 1)
+        self.get_child(frag)
+            .is_some_and(|child| child.num_children() == 1)
     }
 
     /// Returns the shortest prefix length `ret` at which no ambiguity is found.
@@ -509,49 +525,23 @@ where
     pub fn unique_prefix_len(&self, path: &[K]) -> Option<usize> {
         let mut curr = self;
 
-        match curr.freq {
-            Some(_) => {
-                for i in (0..path.len()).into_iter() {
-                    match curr.freq.expect("child does not count freq") {
-                        0 => {
-                            return None;
-                        }
-                        1 => {
-                            return Some(i);
-                        }
-                        _ => match curr.get_direct_child(&path[i]) {
-                            None => {
-                                return Some(i);
-                            }
-
-                            Some(next) => {
-                                curr = next;
-                            }
-                        },
-                    }
+        for i in 0..path.len() {
+            match curr.num_children() {
+                0 => {
+                    return None;
                 }
-            }
-
-            None => {
-                for i in (0..path.len()).into_iter() {
-                    match curr.all_valued_children().len() {
-                        0 => {
-                            return None;
-                        }
-                        1 => {
-                            return Some(i);
-                        }
-                        _ => match curr.get_direct_child(&path[i]) {
-                            None => {
-                                return Some(i);
-                            }
-
-                            Some(next) => {
-                                curr = next;
-                            }
-                        },
-                    }
+                1 => {
+                    return Some(i);
                 }
+                _ => match curr.get_direct_child(&path[i]) {
+                    None => {
+                        return Some(i);
+                    }
+
+                    Some(next) => {
+                        curr = next;
+                    }
+                },
             }
         }
 
@@ -589,16 +579,14 @@ where
     /// Returns cloned child at key `key`.
     #[inline]
     pub fn get_direct_child_clone(&self, key: K) -> Option<Self> {
-        self.children
-            .get(&key)
+        self.get_direct_child(&key)
             .and_then(|child| Some(child.clone()))
     }
 
     /// Returns cloned child at path `path`.
     pub fn get_child_clone(&self, path: &[K]) -> Option<Self> {
         path.is_empty().then_some(self.clone()).or_else(|| {
-            self.children
-                .get(&path[0])
+            self.get_child(path)
                 .and_then(|child| child.get_child_clone(&path[1..]))
         })
     }
@@ -741,9 +729,9 @@ where
     K: Clone + Eq + std::hash::Hash,
 {
     #[inline]
-    pub fn new() -> Self {
+    pub fn new(count_freq: bool) -> Self {
         Self {
-            root: TrieNode::new(false),
+            root: TrieNode::new(count_freq),
         }
     }
 }
@@ -818,104 +806,112 @@ mod tests {
     fn test_trie() {
         use super::*;
 
-        let mut trie: Trie<u8, &str> = Trie::new();
-        trie.insert_value(b"a", "a");
-        trie.insert_value(b"ab", "ab");
-        trie.insert_value(b"abc", "abc");
-        trie.insert_value(b"foo", "foo");
-        trie.insert_value(b"foobar", "foobar");
-        trie.insert_value(b"foobar2000", "foobar2000");
+        [false, true].into_iter().for_each(|count_freq| {
+            let mut trie: TrieNode<u8, &str> = TrieNode::new(count_freq);
+            trie.insert_value(b"a", "a");
+            trie.insert_value(b"ab", "ab");
+            trie.insert_value(b"abc", "abc");
+            trie.insert_value(b"foo", "foo");
+            trie.insert_value(b"foobar", "foobar");
+            trie.insert_value(b"foobar2000", "foobar2000");
 
-        assert_eq!(trie.predict(b"f").expect("bad predict").len(), 3); // foo, foobar, foobar2000
-        assert_eq!(trie.predict(b"ab").expect("bad predict").len(), 2); // ab, abc
-        assert_eq!(trie.predict(b"fa"), None);
+            assert_eq!(trie.predict(b"f").expect("bad predict").len(), 3); // foo, foobar, foobar2000
+            assert_eq!(trie.predict(b"ab").expect("bad predict").len(), 2); // ab, abc
+            assert_eq!(trie.predict(b"fa"), None);
 
-        assert_eq!(trie.search(SearchMode::Prefix, b"a"), true);
-        assert_eq!(trie.search(SearchMode::Prefix, b"f"), true);
-        assert_eq!(trie.search(SearchMode::Prefix, b"fo"), true);
-        assert_eq!(trie.search(SearchMode::Prefix, b"fa"), false);
-        assert_eq!(trie.search(SearchMode::Prefix, b"bar"), false);
-        assert_eq!(trie.search(SearchMode::Prefix, b"ob"), false);
-        assert_eq!(trie.search(SearchMode::Prefix, b"foooba"), false);
+            assert_eq!(trie.search(SearchMode::Prefix, b"a"), true);
+            assert_eq!(trie.search(SearchMode::Prefix, b"f"), true);
+            assert_eq!(trie.search(SearchMode::Prefix, b"fo"), true);
+            assert_eq!(trie.search(SearchMode::Prefix, b"fa"), false);
+            assert_eq!(trie.search(SearchMode::Prefix, b"bar"), false);
+            assert_eq!(trie.search(SearchMode::Prefix, b"ob"), false);
+            assert_eq!(trie.search(SearchMode::Prefix, b"foooba"), false);
 
-        assert_eq!(trie.search(SearchMode::Exact, b"f"), false);
-        assert_eq!(trie.search(SearchMode::Exact, b"fo"), false);
-        assert_eq!(trie.search(SearchMode::Exact, b"foo"), true);
-        assert_eq!(trie.search(SearchMode::Exact, b"foob"), false);
-        assert_eq!(trie.search(SearchMode::Exact, b"fooba"), false);
-        assert_eq!(trie.search(SearchMode::Exact, b"foobar"), true);
+            assert_eq!(trie.search(SearchMode::Exact, b"f"), false);
+            assert_eq!(trie.search(SearchMode::Exact, b"fo"), false);
+            assert_eq!(trie.search(SearchMode::Exact, b"foo"), true);
+            assert_eq!(trie.search(SearchMode::Exact, b"foob"), false);
+            assert_eq!(trie.search(SearchMode::Exact, b"fooba"), false);
+            assert_eq!(trie.search(SearchMode::Exact, b"foobar"), true);
 
-        assert_eq!(trie.all_children_values().len(), 6);
-        assert_eq!(trie.predict(b"a").expect("a node is None").len(), 3);
-        assert_eq!(trie.predict(b"f").expect("f node is None").len(), 3);
+            assert_eq!(trie.all_children_values().len(), 6);
+            assert_eq!(trie.predict(b"a").expect("a node is None").len(), 3);
+            assert_eq!(trie.predict(b"f").expect("f node is None").len(), 3);
 
-        let foob_node = trie.root.get_child(b"foob");
-        assert_eq!(
-            foob_node
-                .expect("foob node is None")
-                .all_children_values()
-                .len(),
-            2
-        );
-
-        let foobar2000_node = trie.get_child(b"foobar2000");
-        assert_eq!(
-            foobar2000_node
-                .expect("foobar2000 node is None")
-                .all_children_values()
-                .len(),
-            1,
-        );
-
-        let foobar2000_node = trie.remove(b"foobar2000").expect("foobar2000 node is None");
-        assert_eq!(foobar2000_node.all_children_values().len(), 1);
-        assert_eq!(foobar2000_node.value, Some("foobar2000"));
-        let assert_check = |trie: &Trie<u8, &str>| {
+            let foob_node = trie.get_child(b"foob");
             assert_eq!(
-                trie.all_children_values().len(),
-                trie.all_valued_children().len()
-            )
-        };
+                foob_node
+                    .expect("foob node is None")
+                    .all_children_values()
+                    .len(),
+                2
+            );
 
-        assert_eq!(trie.all_children_values().len(), 5);
-        assert_check(&trie);
+            let foobar2000_node = trie.get_child(b"foobar2000");
+            assert_eq!(
+                foobar2000_node
+                    .expect("foobar2000 node is None")
+                    .all_children_values()
+                    .len(),
+                1,
+            );
 
-        trie.remove(b"abc"); // deletes abc
-        assert_eq!(trie.all_children_values().len(), 4);
-        assert_check(&trie);
+            let foobar2000_node = trie.remove(b"foobar2000").expect("foobar2000 node is None");
+            assert_eq!(foobar2000_node.all_children_values().len(), 1);
+            assert_eq!(foobar2000_node.value, Some("foobar2000"));
+            let assert_check = |trie: &TrieNode<u8, &str>| {
+                assert_eq!(
+                    trie.all_children_values().len(),
+                    trie.all_valued_children().len()
+                )
+            };
 
-        trie.remove(b"ab"); // deletes ab
-        assert_eq!(trie.all_children_values().len(), 3);
-        assert_check(&trie);
+            assert_eq!(trie.all_children_values().len(), 5);
+            assert_check(&trie);
 
-        trie.remove(b"ab"); // deletes ab
-        assert_eq!(trie.all_children_values().len(), 3);
-        assert_check(&trie);
+            trie.remove(b"abc"); // deletes abc
+            assert_eq!(trie.all_children_values().len(), 4);
+            assert_check(&trie);
 
-        trie.remove(b"f"); // deletes f, fo, foo
-        assert_eq!(trie.all_children_values().len(), 1);
-        assert_check(&trie);
+            trie.remove(b"ab"); // deletes ab
+            assert_eq!(trie.all_children_values().len(), 3);
+            assert_check(&trie);
 
-        trie.remove(b"a"); // deletes a
-        assert_eq!(trie.all_children_values().len(), 0);
-        assert_check(&trie);
+            trie.remove(b"ab"); // deletes ab
+            assert_eq!(trie.all_children_values().len(), 3);
+            assert_check(&trie);
+
+            trie.remove(b"f"); // deletes f, fo, foo
+            assert_eq!(trie.all_children_values().len(), 1);
+            assert_check(&trie);
+
+            println!("here {count_freq} {:?}", trie.freq);
+
+            trie.remove(b"a"); // deletes a
+
+            println!("here eiei {count_freq} {:?}", trie.freq);
+            assert_eq!(trie.all_children_values().len(), 0);
+            assert_check(&trie);
+        });
     }
 
     #[test]
     fn test_unique() {
         use super::*;
 
-        let mut node = TrieNode::new(true);
-        node.insert_value(b"1234000", 1);
-        node.insert_value(b"1234500", 2);
+        [false, true].into_iter().for_each(|count_freq| {
+            let mut node = Trie::new(count_freq);
+            node.insert_value(b"1234000", 1);
+            node.insert_value(b"1234500", 2);
 
-        assert_eq!(node.unique_prefix_len(b"1234000").unwrap(), 5); // 1234{0}
-        assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 5); // 1234{5}
+            assert_eq!(node.unique_prefix_len(b"1234000").unwrap(), 5); // 1234{0}
+            assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 5); // 1234{5}
 
-        node.remove(b"1234000");
-        assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 0); // Only node
+            node.remove(b"1234000");
+            assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 0); // Only node
 
-        node.insert_value(b"1234000", 3);
-        assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 5); // 1234{5}
+            node.insert_value(b"1234000", 3);
+            assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 5); // 1234{5}
+        });
     }
 }
