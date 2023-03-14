@@ -23,7 +23,7 @@ where
 {
     pub value: Option<V>,
 
-    freq: Option<usize>,
+    freq_count: Option<usize>,
     children: HashMap<K, TrieNode<K, V>>,
 }
 
@@ -71,42 +71,60 @@ where
     ///
     /// root.insert_child(b"foo", node);
     /// ```
-    #[inline]
+    #[inline(always)]
     pub fn new(count_freq: bool) -> Self {
         Self {
-            freq: if count_freq { Some(0) } else { None },
+            freq_count: if count_freq { Some(0) } else { None },
             children: HashMap::new(),
             value: None,
         }
     }
 
+    #[inline(always)]
+    fn freq(&self) -> Option<usize> {
+        self.freq_count
+    }
+
+    #[inline(always)]
+    fn counts_freq(&self) -> bool {
+        self.freq().is_some()
+    }
+
     // Increments self.freq by 1
     #[inline(always)]
     fn inc_freq(&mut self) {
-        if let Some(freq) = self.freq {
-            self.freq = Some(freq + 1);
+        if let Some(freq) = self.freq() {
+            self.freq_count = Some(freq + 1);
         }
     }
 
     // Decrements self.freq by 1. Panics if usize overflows.
     #[inline(always)]
     fn de_freq(&mut self) {
-        if let Some(freq) = self.freq {
-            self.freq = Some(freq - 1);
+        if let Some(freq) = self.freq() {
+            self.freq_count = Some(freq - 1);
         }
     }
 
+    #[inline(always)]
+    fn set_value(&mut self, value: V) {
+        self.value = Some(value)
+    }
+
     /// Returns `Some(Self)` if there's already child at key, otherwise inserts `child` and returns `None`
+    /// It is a sister to [get_or_insert_direct_child](Self::get_or_insert_direct_child).
+    #[inline(always)]
     pub fn insert_or_get_direct_child<Q>(&mut self, key: Q, child: Self) -> Option<Self>
     where
         Q: std::ops::Deref<Target = K>,
     {
+        self.inc_freq();
         self.children.insert(key.clone(), child)
     }
 
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
-    #[inline]
+    #[inline(always)]
     pub fn get_or_insert_direct_child<Q>(&mut self, key: Q, child: Self) -> &mut Self
     where
         Q: std::ops::Deref<Target = K>,
@@ -117,13 +135,58 @@ where
 
     /// Returns the mutable reference of the existing child at key `key`.
     /// If it does not exist, inserts `child` to `self.children` and returning that new child.
-    #[inline]
+    #[inline(always)]
     pub fn get_or_insert_direct_value<T, Q>(&mut self, key: Q, value: T) -> &mut Self
     where
         Q: std::ops::Deref<Target = K>,
         T: Into<Self>,
     {
         self.get_or_insert_direct_child(key, value.into())
+    }
+
+    /// Removes and returns the direct owned child at key `key`.
+    #[inline(always)]
+    pub fn remove_direct_child<Q>(&mut self, key: Q) -> Option<Self>
+    where
+        Q: std::ops::Deref<Target = K>,
+    {
+        self.children.remove(&key)
+    }
+
+    /// Removes the child at path `path`, returning the owned child.
+    /// If the child is `Some`, then it decrements `self.freq_count` counter.
+    /// ```
+    /// # use soytrie::TrieNode;
+    /// let mut node = TrieNode::new(false);
+    /// node.insert_value("foobar".as_bytes(), "foobar value");
+    /// node.remove("foo".as_bytes());
+    /// assert!(node.all_valued_children().is_empty());
+    /// ```
+    #[inline(always)]
+    pub fn remove(&mut self, path: &[K]) -> Option<Self> {
+        let last_idx = path.len() - 1;
+
+        let removed = self
+            .get_child_mut(&path[..last_idx])
+            .and_then(|child| child.remove_direct_child(&path[last_idx]));
+
+        if removed.is_some() {
+            self.de_freq();
+        }
+
+        removed
+    }
+
+    // Recursively collects all extant children of `node`.
+    fn collect_children<'s, 'l>(node: &'l Self, children: &mut Vec<&'s Self>)
+    where
+        'l: 's,
+    {
+        children.push(node);
+
+        node.children
+            .values()
+            .for_each(|child| Self::collect_children(child, children));
     }
 
     /// Inserts `child` at path `path`. If the child already exists, it is assigned a completely new value
@@ -159,7 +222,7 @@ where
 
         let mut curr = self;
         for p in path {
-            let next = curr.get_or_insert_direct_value(p, Self::new(curr.freq.is_some()));
+            let next = curr.get_or_insert_direct_value(p, Self::new(curr.freq().is_some()));
             curr = next;
         }
 
@@ -183,7 +246,7 @@ where
     /// ```
     #[inline]
     pub fn insert_value(&mut self, path: &[K], value: V) {
-        let count_freq = self.freq.is_some();
+        let count_freq = self.counts_freq();
 
         let mut curr = self;
         for p in path {
@@ -191,7 +254,7 @@ where
             curr = next;
         }
 
-        curr.value = Some(value);
+        curr.set_value(value);
     }
 
     /// Returns a reference to the direct child at key `key`.
@@ -286,7 +349,7 @@ where
     /// ```
     pub fn get_or_update_child(&mut self, path: &[K], value: V) -> Option<Self> {
         // TODO: preserve children
-        let count_freq = self.freq.is_some();
+        let count_freq = self.counts_freq();
 
         if path.is_empty() {
             let mut tmp: Self = (value, count_freq).into();
@@ -299,7 +362,7 @@ where
             return self.insert_or_get_direct_child(&path[0], (value, count_freq).into());
         }
 
-        self.get_or_insert_direct_child(&path[0], Self::new(self.freq.is_some()))
+        self.get_or_insert_direct_child(&path[0], Self::new(count_freq))
             .get_or_update_child(&path[1..], value)
     }
 
@@ -342,49 +405,6 @@ where
                 SearchMode::Exact => child.value.is_some(),
             },
         }
-    }
-
-    /// Removes and returns the direct owned child at key `key`.
-    #[inline(always)]
-    pub fn remove_direct_child<Q>(&mut self, key: Q) -> Option<Self>
-    where
-        Q: std::ops::Deref<Target = K>,
-    {
-        self.children.remove(&key)
-    }
-
-    /// Removes the child at path `path`, returning the owned child.
-    /// ```
-    /// # use soytrie::TrieNode;
-    /// let mut node = TrieNode::new(false);
-    /// node.insert_value("foobar".as_bytes(), "foobar value");
-    /// node.remove("foo".as_bytes());
-    /// assert!(node.all_valued_children().is_empty());
-    /// ```
-    pub fn remove(&mut self, path: &[K]) -> Option<Self> {
-        let last_idx = path.len() - 1;
-
-        let removed = self
-            .get_child_mut(&path[..last_idx])
-            .and_then(|child| child.remove_direct_child(&path[last_idx]));
-
-        if removed.is_some() {
-            self.de_freq();
-        }
-
-        removed
-    }
-
-    /// Recursively collects all extant children of `node`.
-    fn collect_children<'s, 'l>(node: &'l Self, children: &mut Vec<&'s Self>)
-    where
-        'l: 's,
-    {
-        children.push(node);
-
-        node.children
-            .values()
-            .for_each(|child| Self::collect_children(child, children));
     }
 
     /// Returns all children of the node.
@@ -481,7 +501,7 @@ where
     /// Returns the number of valued children
     #[inline(always)]
     pub fn num_children(&self) -> usize {
-        self.freq.unwrap_or(self.all_valued_children().len())
+        self.freq().unwrap_or(self.all_valued_children().len())
     }
 
     /// Reports whether the given fragment of path `frag` suffices to uniquely identify
@@ -607,7 +627,7 @@ where
 {
     fn from(value: V) -> Self {
         Self {
-            freq: None,
+            freq_count: None,
             value: Some(value),
             children: HashMap::new(),
         }
@@ -620,7 +640,7 @@ where
 {
     fn from(constructor: (V, bool)) -> Self {
         Self {
-            freq: if constructor.1 { Some(0) } else { None },
+            freq_count: if constructor.1 { Some(0) } else { None },
             value: Some(constructor.0),
             children: HashMap::new(),
         }
@@ -642,7 +662,7 @@ where
 {
     fn from(opt: Option<V>) -> Self {
         Self {
-            freq: None,
+            freq_count: None,
             value: opt,
             children: HashMap::new(),
         }
@@ -655,7 +675,7 @@ where
 {
     fn from(constructor: (Option<V>, bool)) -> Self {
         Self {
-            freq: if constructor.1 { Some(0) } else { None },
+            freq_count: if constructor.1 { Some(0) } else { None },
             value: constructor.0,
             children: HashMap::new(),
         }
@@ -709,7 +729,7 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            freq: self.freq,
+            freq_count: self.freq_count,
             value: self.value.clone(),
             children: self.children.clone(),
         }
@@ -885,11 +905,7 @@ mod tests {
             assert_eq!(trie.all_children_values().len(), 1);
             assert_check(&trie);
 
-            println!("here {count_freq} {:?}", trie.freq);
-
             trie.remove(b"a"); // deletes a
-
-            println!("here eiei {count_freq} {:?}", trie.freq);
             assert_eq!(trie.all_children_values().len(), 0);
             assert_check(&trie);
         });
