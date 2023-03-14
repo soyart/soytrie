@@ -14,15 +14,38 @@ soytrie is a simple, generic Rust implementation of trie using Rust's built-in
 
 soytrie aims to be minimal, flexible, efficient, and complete.
 
-soytrie does not depend on external crates, except in branch `develop`,
-where benchmark code is added.
-
 ## Features
 
 soytrie supports insertion, deep insertion, searching, prediction,
-deletion, and deep deletion via struct [`TrieNode<K, V>`](TrieNode).
+deletion, and deep deletion via trait [`TrieNode`](TrieNode).
 
-All operations only traverse down the trie path once.
+All operations [`TrieNode`](TrieNode) methods only traverse down the trie path once, except when
+except when we need to retrieve information from all children.
+
+In addition to `TrieNode` nodes, soytrie also provides [`Trie`](Trie) for working with multiple nodes,
+which is a `TrieNode` with root.
+
+soytrie provides 2 implementation of [`TrieNode`](TrieNode):
+
+### [`HashMapTrie`](HashMapTrie)
+
+	Basic implementation of `TrieNode`.
+
+	This implementation only stores node value and children. `HashMapTrie` is preferred for problems
+that do not concern with unique prefixes or number of children.
+
+### [`HashMapTrieFreq`](HashMapTrieFreq)
+
+A `TrieNode` implementation which stores everything [`HashMapTrie`](HashMapTrie) does,
+	but it also counts its children.
+
+It increments the counter every time a child is inserted,
+and decrements the counter every time a child is successfully removed.
+
+	`HashMapTrieFreq` is preferred when the problems revolve around determining shortest
+	prefixes or counting the number of children.
+
+Users can implement their own `TrieNode` and use the `pub` tests provided.
 
 ## Caveats: Rust ergonomic traits
 
@@ -38,8 +61,8 @@ All operations only traverse down the trie path once.
 ## Examples
 
 ```rust
-use soytrie::{Trie, SearchMode};
-let mut trie: Trie<u8, &str> = Trie::new();
+use soytrie::{Trie, TrieNode, SearchMode, HashMapTrie};
+let mut trie = Trie::from(HashMapTrie::new());
 
 // Keys and values are not related.
 trie.insert_value(b"a", "This is the 'a' node");
