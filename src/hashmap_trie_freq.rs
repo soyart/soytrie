@@ -1,17 +1,71 @@
 use crate::TrieNode;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
+#[derive(Clone)]
+struct Count(usize);
+
+impl Count {
+    fn new() -> Self {
+        Self(0)
+    }
+    fn incr(&mut self) {
+        self.0 += 1;
+    }
+    fn decr(&mut self) {
+        self.0 -= 1;
+    }
+    fn val(&self) -> usize {
+        self.0
+    }
+}
+
+impl From<usize> for Count {
+    fn from(u: usize) -> Self {
+        Self(u)
+    }
+}
+
+// Freq provides interior mutability for HashMapTrieFreq
+struct Freq(RefCell<Count>);
+
+impl Freq {
+    fn new() -> Self {
+        Self(RefCell::new(Count::new()))
+    }
+    fn incr(&self) {
+        self.0.borrow_mut().incr();
+    }
+    fn decr(&self) {
+        self.0.borrow_mut().decr();
+    }
+    fn count(&self) -> Count {
+        self.0.borrow().clone()
+    }
+    fn val(&self) -> usize {
+        self.count().val()
+    }
+}
+
+impl From<Count> for Freq {
+    fn from(c: Count) -> Self {
+        Self(RefCell::new(c))
+    }
+}
+
+/// TODO: Fix
 /// A [`TrieNode`](TrieNode) backed by [HashMap](HashMap) with frequency tracking built in.
 /// Fields `value` and `children` are uncorrelated and can be used arbitarily.
 /// If using multiple tries, consider using [`Trie`](crate::Trie), which wraps a single `TrieNode` as root.
-pub struct HashMapTrieFreq<K, V>
+#[allow(unused)]
+struct HashMapTrieFreq<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
 {
     pub value: Option<V>,
 
-    freq_count: usize,
+    freq_count: Freq,
     children: HashMap<K, HashMapTrieFreq<K, V>>,
 }
 
@@ -22,7 +76,7 @@ where
 {
     fn default() -> Self {
         Self {
-            freq_count: 0,
+            freq_count: Freq::new(),
             children: HashMap::new(),
             value: None,
         }
@@ -37,7 +91,7 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            freq_count: self.freq_count.clone(),
+            freq_count: self.freq_count.count().into(),
             value: self.value.clone(),
             children: self.children.clone(),
         }
@@ -76,7 +130,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         f.debug_struct("TrieNode")
-            .field("freq", &self.freq_count)
+            .field("freq", &self.freq_count.val())
             .field("children", &self.all_children_values())
             .field("value", &self.value)
             .finish()
@@ -89,14 +143,14 @@ where
 {
     // Increments self.freq by 1
     #[inline(always)]
-    fn inc_freq(&mut self) {
-        self.freq_count += 1;
+    fn inc_freq(&self) {
+        self.freq_count.incr();
     }
 
     // Decrements self.freq by 1. Panics if usize overflows.
     #[inline(always)]
-    fn de_freq(&mut self) {
-        self.freq_count -= 1;
+    fn de_freq(&self) {
+        self.freq_count.decr();
     }
 }
 
@@ -107,11 +161,6 @@ where
     #[inline(always)]
     fn new() -> Self {
         Self::default()
-    }
-
-    #[inline(always)]
-    fn freq(&self) -> Option<usize> {
-        Some(self.freq_count)
     }
 
     #[inline(always)]
@@ -244,7 +293,7 @@ where
     /// Returns the number of valued children
     #[inline(always)]
     fn num_children(&self) -> usize {
-        self.freq_count
+        self.freq_count.val()
     }
 }
 
@@ -270,6 +319,7 @@ where
 ///     2,
 /// );
 /// ```
+#[allow(unused)]
 impl<K, V> HashMapTrieFreq<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
@@ -306,7 +356,7 @@ where
     fn from(value: V) -> Self {
         Self {
             value: Some(value),
-            freq_count: 0,
+            freq_count: Freq::new(),
             children: HashMap::new(),
         }
     }
@@ -326,7 +376,7 @@ where
     fn from(opt: Option<V>) -> Self {
         Self {
             value: opt,
-            freq_count: 0,
+            freq_count: Freq::new(),
             children: HashMap::new(),
         }
     }
@@ -334,8 +384,46 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::HashMapTrieFreq;
+    use super::{Count, Freq, HashMapTrieFreq};
     use crate::TrieNode;
+
+    #[test]
+    fn test_freq() {
+        let mut c = Count::new();
+        assert_eq!(c.0, 0);
+        c.incr();
+        assert_eq!(c.0, 1);
+        c.incr();
+        assert_eq!(c.0, 2);
+        c.decr();
+        assert_eq!(c.0, 1);
+        c.decr();
+        assert_eq!(c.0, 0);
+
+        let f = Freq::new();
+        assert_eq!(f.val(), 0);
+        f.incr();
+        assert_eq!(f.val(), 1);
+        f.incr();
+        assert_eq!(f.val(), 2);
+        f.decr();
+        assert_eq!(f.val(), 1);
+        f.decr();
+        assert_eq!(f.val(), 0);
+    }
+
+    #[test]
+    fn test_trie_freq() {
+        use crate::print_node_children;
+
+        let mut node = HashMapTrieFreq::new();
+        node.insert_value(b"123", 1);
+        print_node_children(&node, "insert: 123");
+        node.insert_value(b"123", 2);
+        print_node_children(&node, "insert: 123");
+
+        assert_eq!(node.num_children(), 1);
+    }
 
     #[test]
     fn test_trie() {

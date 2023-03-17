@@ -17,9 +17,6 @@ where
 {
     fn new() -> Self;
 
-    /// Returns Some(_) if the node tracks frequency, None otherwise
-    fn freq(&self) -> Option<usize>;
-
     fn set_value(&mut self, value: V);
 
     fn peek_value(&self) -> &Option<V>;
@@ -61,11 +58,6 @@ where
     fn num_children(&self) -> usize;
 
     fn swap_node_value(&mut self, value: V) -> Option<V>;
-
-    #[inline(always)]
-    fn counts_freq(&self) -> bool {
-        self.freq().is_some()
-    }
 
     #[inline(always)]
     fn swap(&mut self, node: &mut Self) {
@@ -367,8 +359,11 @@ where
     /// ```
     fn unique_prefix_len(&self, path: &[K]) -> Option<usize> {
         let mut curr = self;
+        let mut j = 0;
 
         for i in 0..path.len() {
+            j = i;
+
             match curr.num_children() {
                 0 => {
                     return None;
@@ -388,8 +383,33 @@ where
             }
         }
 
+        println!(
+            "ayo {} {} {}",
+            curr.num_children(),
+            curr.all_children_values().len(),
+            curr.all_children().len(),
+        );
+
+        if curr.num_children() == 1 {
+            return Some(j + 1);
+        }
+
         None
     }
+}
+
+pub(crate) fn print_node_children<T, K, V>(node: &T, action: &str)
+where
+    T: TrieNode<K, V>,
+    K: Clone + Eq + std::hash::Hash,
+{
+    println!(
+        "{}: num_children: {}, all_valued_children: {}, all_children: {}",
+        action,
+        node.num_children(),
+        node.all_valued_children().len(),
+        node.all_children().len()
+    )
 }
 
 // Returns t
@@ -487,16 +507,36 @@ pub mod tests {
     where
         T: TrieNode<u8, usize>,
     {
+        use crate::print_node_children;
+
+        print_node_children(&node, "init");
+
         node.insert_value(b"1234000", 1);
+        print_node_children(&node, "insert: 1234000");
+
         node.insert_value(b"1234500", 2);
+        print_node_children(&node, "insert: 1234500");
 
         assert_eq!(node.unique_prefix_len(b"1234000").unwrap(), 5); // 1234{0}
         assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 5); // 1234{5}
 
         node.remove(b"1234000");
+        print_node_children(&node, "remove: 1234000");
         assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 0); // Only node
 
         node.insert_value(b"1234000", 3);
+        print_node_children(&node, "insert: 1234000");
         assert_eq!(node.unique_prefix_len(b"1234500").unwrap(), 5); // 1234{5}
+
+        let abc = b"abc";
+        let abx = b"abx";
+        node.insert_value(abc, 10);
+        print_node_children(&node, "insert: abc");
+        assert_eq!(node.unique_prefix_len(abc).unwrap(), 1); // a
+
+        node.insert_value(abx, 20);
+        print_node_children(&node, "insert: abx");
+        assert_eq!(node.unique_prefix_len(abc).unwrap(), 3); // ab{c}
+        assert_eq!(node.unique_prefix_len(abx).unwrap(), 3); // ab{x}
     }
 }

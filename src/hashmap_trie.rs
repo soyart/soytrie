@@ -129,11 +129,6 @@ where
     }
 
     #[inline(always)]
-    fn freq(&self) -> Option<usize> {
-        None
-    }
-
-    #[inline(always)]
     fn set_value(&mut self, value: V) {
         self.value = Some(value)
     }
