@@ -398,23 +398,32 @@ where
     }
 }
 
-pub(crate) fn print_node_children<T, K, V>(node: &T, action: &str)
-where
-    T: TrieNode<K, V>,
-    K: Clone + Eq + std::hash::Hash,
-{
-    println!(
-        "{}: num_children: {}, all_valued_children: {}, all_children: {}",
-        action,
-        node.num_children(),
-        node.all_valued_children().len(),
-        node.all_children().len()
-    )
-}
-
-// Returns t
+#[allow(dead_code)]
 pub mod tests {
     use super::TrieNode;
+
+    pub(crate) fn print_node_children<T, K, V>(node: &T, action: &str)
+    where
+        T: TrieNode<K, V>,
+        K: Clone + Eq + std::hash::Hash,
+    {
+        println!(
+            "{action}: num_children: {}, all_valued_children: {}, all_children: {}",
+            node.num_children(),
+            node.all_valued_children().len(),
+            node.all_children().len()
+        )
+    }
+
+    pub(crate) fn print_node_debug<T, K, V>(node: &T, action: &str)
+    where
+        T: TrieNode<K, V> + std::fmt::Debug,
+        K: Clone + Eq + std::hash::Hash + std::fmt::Debug,
+        V: std::fmt::Debug,
+    {
+        println!("{action}: {:?}", node);
+    }
+
     pub fn test_trie<T>(mut trie: T)
     where
         T: TrieNode<u8, String>,
@@ -507,8 +516,6 @@ pub mod tests {
     where
         T: TrieNode<u8, usize>,
     {
-        use crate::print_node_children;
-
         print_node_children(&node, "init");
 
         node.insert_value(b"1234000", 1);

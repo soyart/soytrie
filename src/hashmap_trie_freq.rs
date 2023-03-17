@@ -59,7 +59,7 @@ impl From<Count> for Freq {
 /// Fields `value` and `children` are uncorrelated and can be used arbitarily.
 /// If using multiple tries, consider using [`Trie`](crate::Trie), which wraps a single `TrieNode` as root.
 #[allow(unused)]
-struct HashMapTrieFreq<K, V>
+pub struct HashMapTrieFreq<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
 {
@@ -137,6 +137,7 @@ where
     }
 }
 
+#[allow(unused)]
 impl<K, V> HashMapTrieFreq<K, V>
 where
     K: Clone + Eq + std::hash::Hash,
@@ -151,6 +152,39 @@ where
     #[inline(always)]
     fn de_freq(&self) {
         self.freq_count.decr();
+    }
+
+    fn insert_child_freq(&mut self, path: &[K], child: Self) -> bool {
+        if path.is_empty() {
+            *self = child;
+            return false;
+        }
+
+        // added is used to signal the recursive caller
+        // to call inc_freq.
+        let mut child_added = false;
+        let mut grand_child_added = false;
+
+        if self
+            .children
+            .entry(path[0].clone())
+            .or_insert_with(|| {
+                // Caller node must increase their freq too
+                child_added = true;
+
+                Self::new()
+            })
+            .insert_child_freq(&path[1..], child)
+        {
+            grand_child_added = true;
+        }
+
+        let should_update = grand_child_added || child_added;
+        if should_update {
+            self.inc_freq();
+        }
+
+        should_update
     }
 }
 
@@ -185,8 +219,13 @@ where
     where
         Q: std::ops::Deref<Target = K>,
     {
-        self.inc_freq();
-        self.children.insert(key.clone(), child)
+        match self.children.insert(key.clone(), child) {
+            Some(occupied) => Some(occupied),
+            None => {
+                self.inc_freq();
+                None
+            }
+        }
     }
 
     /// Returns the mutable reference of the existing child at key `key`.
@@ -196,7 +235,10 @@ where
     where
         Q: std::ops::Deref<Target = K>,
     {
-        self.inc_freq();
+        if self.has_direct_child(crate::SearchMode::Prefix, &key.clone()) {
+            self.inc_freq();
+        }
+
         self.children.entry(key.clone()).or_insert(child)
     }
 
@@ -225,6 +267,14 @@ where
         Q: std::ops::Deref<Target = K>,
     {
         self.children.remove(&key)
+    }
+
+    fn insert_child(&mut self, path: &[K], child: Self) {
+        self.insert_child_freq(path, child);
+    }
+
+    fn insert_value(&mut self, path: &[K], value: V) {
+        self.insert_child(path, value.into());
     }
 
     /// Removes the child at path `path`, returning the owned child.
@@ -414,15 +464,26 @@ mod tests {
 
     #[test]
     fn test_trie_freq() {
-        use crate::print_node_children;
+        use crate::tests::{print_node_children, print_node_debug};
 
         let mut node = HashMapTrieFreq::new();
+        println!("inserting 123");
         node.insert_value(b"123", 1);
         print_node_children(&node, "insert: 123");
+        print_node_debug(&node, "insert: 123");
+        assert_eq!(node.num_children(), 1);
+
+        println!("re-inserting 123");
         node.insert_value(b"123", 2);
         print_node_children(&node, "insert: 123");
-
+        print_node_debug(&node, "insert: 123");
         assert_eq!(node.num_children(), 1);
+
+        println!("inserting 1234");
+        node.insert_value(b"1234", 3);
+        print_node_children(&node, "insert: 1234");
+        print_node_debug(&node, "insert: 1234");
+        assert_eq!(node.num_children(), 2);
     }
 
     #[test]
