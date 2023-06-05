@@ -1,6 +1,6 @@
 # soytrie
 
-[![Workflow Status](https://github.com/artnoi43/soytrie/workflows/main/badge.svg)](https://github.com/artnoi43/soytrie/actions?query=workflow%3A%22main%22)
+[![Workflow Status](https://github.com/soyart/soytrie/workflows/main/badge.svg)](https://github.com/soyart/soytrie/actions?query=workflow%3A%22main%22)
 ![Maintenance](https://img.shields.io/badge/maintenance-activly--developed-brightgreen.svg)
 
 ```text
